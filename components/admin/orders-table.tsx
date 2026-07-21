@@ -1,10 +1,12 @@
 import Link from "next/link";
 import type { AdminOrderListItem } from "@/lib/db/admin-orders";
 import { formatPrice } from "@/lib/utils/format-price";
+import { EmptyState } from "@/components/ui/empty-state";
 import type { OrderStatus, PaymentStatus } from "@/types";
 
 interface OrdersTableProps {
   orders: AdminOrderListItem[];
+  hasActiveFilters?: boolean;
 }
 
 const ORDER_STATUS_CLASS: Record<OrderStatus, string> = {
@@ -32,12 +34,31 @@ function formatDate(value: string): string {
   });
 }
 
-export function OrdersTable({ orders }: OrdersTableProps) {
+export function OrdersTable({
+  orders,
+  hasActiveFilters = false,
+}: OrdersTableProps) {
   if (orders.length === 0) {
+    if (hasActiveFilters) {
+      return (
+        <EmptyState
+          tone="dark"
+          title="No orders match your search"
+          description="Try a different status filter or search by another customer name or phone number."
+          actionHref="/admin/dashboard/orders"
+          actionLabel="Clear filters"
+        />
+      );
+    }
+
     return (
-      <div className="rounded-2xl border border-dashed border-neutral-700 bg-neutral-900/50 px-6 py-16 text-center">
-        <p className="text-sm text-neutral-400">No orders match these filters.</p>
-      </div>
+      <EmptyState
+        tone="dark"
+        title="No orders yet"
+        description="When customers complete checkout, their orders will show up here."
+        actionHref="/admin/dashboard"
+        actionLabel="Back to dashboard"
+      />
     );
   }
 

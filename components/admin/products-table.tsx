@@ -11,6 +11,7 @@ import {
 } from "@/lib/actions/admin-products";
 import type { AdminProductListItem } from "@/lib/db/admin-products";
 import { formatPrice } from "@/lib/utils/format-price";
+import { EmptyState } from "@/components/ui/empty-state";
 
 interface ProductsTableProps {
   products: AdminProductListItem[];
@@ -76,15 +77,13 @@ export function ProductsTable({ products }: ProductsTableProps) {
 
   if (products.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-neutral-700 bg-neutral-900/50 px-6 py-16 text-center">
-        <p className="text-sm text-neutral-400">No products yet.</p>
-        <Link
-          href="/admin/dashboard/products/new"
-          className="mt-4 inline-flex rounded-full bg-lime-400 px-4 py-2 text-sm font-semibold text-neutral-950 hover:bg-lime-300"
-        >
-          Add your first product
-        </Link>
-      </div>
+      <EmptyState
+        tone="dark"
+        title="No products yet"
+        description="Add your first tee to start selling on the BOOK MY TEES storefront."
+        actionHref="/admin/dashboard/products/new"
+        actionLabel="Add your first product"
+      />
     );
   }
 

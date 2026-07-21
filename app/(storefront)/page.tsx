@@ -3,6 +3,14 @@ import { HeroSection } from "@/components/storefront/hero-section";
 import { ProductGrid } from "@/components/storefront/product-grid";
 import { getFeaturedCategories } from "@/lib/db/categories";
 import { getFeaturedProducts } from "@/lib/db/products";
+import { buildPageMetadata, SITE_NAME, SITE_TAGLINE } from "@/lib/seo/site";
+
+export const metadata = buildPageMetadata({
+  title: SITE_NAME,
+  description: SITE_TAGLINE,
+  path: "/",
+  absoluteTitle: true,
+});
 
 export default async function HomePage() {
   const [categories, products] = await Promise.all([
@@ -50,7 +58,7 @@ export default async function HomePage() {
                 styles, so grab yours before they&apos;re gone.
               </p>
             </div>
-            <ProductGrid products={products} />
+            <ProductGrid products={products} priorityCount={4} />
           </div>
         </section>
     </main>

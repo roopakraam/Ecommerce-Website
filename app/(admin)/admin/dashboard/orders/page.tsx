@@ -56,7 +56,10 @@ export default async function AdminOrdersPage({ searchParams }: OrdersPageProps)
 
       <div className="space-y-4">
         <OrdersFilters status={statusFilter} search={search} />
-        <OrdersTable orders={orders} />
+        <OrdersTable
+          orders={orders}
+          hasActiveFilters={statusFilter !== "all" || Boolean(search)}
+        />
       </div>
     </main>
   );

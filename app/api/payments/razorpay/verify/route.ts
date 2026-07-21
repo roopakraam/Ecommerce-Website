@@ -3,6 +3,7 @@ import {
   getOrderForPayment,
   markOrderPaymentPaid,
 } from "@/lib/db/orders";
+import { notifyOrderPaid } from "@/lib/notifications/order-confirmation";
 import { verifyRazorpayPaymentSignature } from "@/lib/razorpay/verify-signature";
 import { verifyRazorpayPaymentSchema } from "@/lib/validations/payment";
 
@@ -82,6 +83,9 @@ export async function POST(request: Request) {
         { status: 500 }
       );
     }
+
+    // Safe: notifyOrderPaid swallows provider errors so payment success is preserved.
+    await notifyOrderPaid(orderId);
 
     return NextResponse.json({
       success: true,

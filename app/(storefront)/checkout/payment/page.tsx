@@ -2,6 +2,15 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { RazorpayCheckout } from "@/components/storefront/razorpay-checkout";
 import { getOrderForPayment } from "@/lib/db/orders";
+import { buildPageMetadata } from "@/lib/seo/site";
+
+export const metadata = buildPageMetadata({
+  title: "Complete Payment",
+  description:
+    "Pay securely for your BOOK MY TEES order with Razorpay checkout.",
+  path: "/checkout/payment",
+  noIndex: true,
+});
 
 interface PaymentPageProps {
   searchParams: {

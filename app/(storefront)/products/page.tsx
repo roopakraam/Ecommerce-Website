@@ -1,17 +1,18 @@
 import { Suspense } from "react";
-import type { Metadata } from "next";
 import { ProductFilters } from "@/components/storefront/product-filters";
 import { ProductGrid } from "@/components/storefront/product-grid";
 import { getAllCategories } from "@/lib/db/categories";
 import { getProducts, type ProductSort } from "@/lib/db/products";
+import { buildPageMetadata } from "@/lib/seo/site";
 
 export const revalidate = 60;
 
-export const metadata: Metadata = {
-  title: "Shop All Tees | BOOK MY TEES",
+export const metadata = buildPageMetadata({
+  title: "Shop All Tees",
   description:
     "Browse graphic tees, everyday basics, and limited drops from BOOK MY TEES. Filter by collection and sort by price.",
-};
+  path: "/products",
+});
 
 interface ProductsPageProps {
   searchParams: {
@@ -69,7 +70,12 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
         {products.length} {products.length === 1 ? "product" : "products"}
       </p>
 
-      <ProductGrid products={products} />
+      <ProductGrid
+        products={products}
+        priorityCount={4}
+        emptyVariant={categorySlug ? "filtered" : "catalog"}
+        emptyCategoryName={activeCategory?.name}
+      />
     </main>
   );
 }

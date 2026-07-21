@@ -2,9 +2,11 @@ import Image from "next/image";
 import Link from "next/link";
 import { formatPrice } from "@/lib/utils/format-price";
 import type { ProductWithImages } from "@/lib/db/products";
+import { EmptyState } from "@/components/ui/empty-state";
 
 interface ProductCardProps {
   product: ProductWithImages;
+  priority?: boolean;
 }
 
 function getPrimaryImage(product: ProductWithImages): string | null {
@@ -14,7 +16,7 @@ function getPrimaryImage(product: ProductWithImages): string | null {
   return sorted[0]?.url ?? null;
 }
 
-export function ProductCard({ product }: ProductCardProps) {
+export function ProductCard({ product, priority = false }: ProductCardProps) {
   const imageUrl = getPrimaryImage(product);
   const isSoldOut = product.stock_quantity === 0;
   const onSale =
@@ -32,6 +34,7 @@ export function ProductCard({ product }: ProductCardProps) {
             src={imageUrl}
             alt={product.name}
             fill
+            priority={priority}
             sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
             className="object-cover transition duration-300 group-hover:scale-105"
           />
@@ -71,25 +74,52 @@ export function ProductCard({ product }: ProductCardProps) {
   );
 }
 
+export type ProductGridEmptyVariant = "catalog" | "filtered";
+
 interface ProductGridProps {
   products: ProductWithImages[];
+  priorityCount?: number;
+  emptyVariant?: ProductGridEmptyVariant;
+  emptyCategoryName?: string;
 }
 
-export function ProductGrid({ products }: ProductGridProps) {
+export function ProductGrid({
+  products,
+  priorityCount = 0,
+  emptyVariant = "catalog",
+  emptyCategoryName,
+}: ProductGridProps) {
   if (products.length === 0) {
+    if (emptyVariant === "filtered") {
+      return (
+        <EmptyState
+          title="No products match this filter"
+          description={
+            emptyCategoryName
+              ? `Nothing is listed in “${emptyCategoryName}” right now. Try another collection or view all tees.`
+              : "No products match your current filters. Clear filters to see the full catalog."
+          }
+          actionHref="/products"
+          actionLabel="View all tees"
+        />
+      );
+    }
+
     return (
-      <p className="rounded-2xl border border-dashed border-neutral-300 bg-neutral-50 px-6 py-10 text-center text-sm text-neutral-500">
-        New tees are dropping soon. Follow us for graphic prints, oversized fits,
-        and everyday staples.
-      </p>
+      <EmptyState
+        title="No products yet"
+        description="New tees are dropping soon. Follow us for graphic prints, oversized fits, and everyday staples."
+        actionHref="/"
+        actionLabel="Back home"
+      />
     );
   }
 
   return (
     <ul className="grid grid-cols-2 gap-3 sm:gap-5 lg:grid-cols-4">
-      {products.map((product) => (
+      {products.map((product, index) => (
         <li key={product.id}>
-          <ProductCard product={product} />
+          <ProductCard product={product} priority={index < priorityCount} />
         </li>
       ))}
     </ul>

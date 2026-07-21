@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+import { getSiteUrl, SITE_NAME, SITE_TAGLINE } from "@/lib/seo/site";
 import "./globals.css";
 
 const geistSans = localFont({
@@ -14,8 +15,24 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "BOOK MY TEES",
-  description: "Premium T-shirt apparel e-commerce store",
+  metadataBase: new URL(getSiteUrl()),
+  title: {
+    default: SITE_NAME,
+    template: `%s | ${SITE_NAME}`,
+  },
+  description: SITE_TAGLINE,
+  openGraph: {
+    type: "website",
+    locale: "en_IN",
+    siteName: SITE_NAME,
+    title: SITE_NAME,
+    description: SITE_TAGLINE,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: SITE_NAME,
+    description: SITE_TAGLINE,
+  },
 };
 
 export default function RootLayout({

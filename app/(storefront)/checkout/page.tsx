@@ -1,12 +1,14 @@
-import type { Metadata } from "next";
 import { CheckoutForm } from "@/components/storefront/checkout-form";
 import { getCheckoutContext } from "@/lib/db/checkout";
+import { buildPageMetadata } from "@/lib/seo/site";
 
-export const metadata: Metadata = {
-  title: "Checkout | BOOK MY TEES",
+export const metadata = buildPageMetadata({
+  title: "Checkout",
   description:
     "Complete your order with secure checkout and pan-India shipping from BOOK MY TEES.",
-};
+  path: "/checkout",
+  noIndex: true,
+});
 
 export default async function CheckoutPage() {
   const checkoutContext = await getCheckoutContext();

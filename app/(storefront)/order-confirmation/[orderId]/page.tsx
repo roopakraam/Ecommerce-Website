@@ -12,6 +12,7 @@ import {
 import { getOrderConfirmation } from "@/lib/db/orders";
 import { formatPrice } from "@/lib/utils/format-price";
 import { ClearCartOnMount } from "@/components/storefront/clear-cart-on-mount";
+import { buildPageMetadata } from "@/lib/seo/site";
 import type { OrderStatus, PaymentStatus } from "@/types";
 
 interface PageProps {
@@ -23,10 +24,13 @@ interface PageProps {
 export async function generateMetadata({
   params,
 }: PageProps): Promise<Metadata> {
-  return {
-    title: `Order ${params.orderId.slice(0, 8)}… | BOOK MY TEES`,
-    description: "View your order summary, items, and payment status.",
-  };
+  return buildPageMetadata({
+    title: `Order ${params.orderId.slice(0, 8)}…`,
+    description:
+      "View your BOOK MY TEES order summary, items, shipping address, and payment status.",
+    path: `/order-confirmation/${params.orderId}`,
+    noIndex: true,
+  });
 }
 
 const ORDER_STATUS_CONFIG: Record<

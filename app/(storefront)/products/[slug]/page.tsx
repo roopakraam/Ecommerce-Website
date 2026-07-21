@@ -3,12 +3,14 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AddToCartSection } from "@/components/storefront/add-to-cart-section";
 import { ProductImageGallery } from "@/components/storefront/product-image-gallery";
+import { ProductJsonLd } from "@/components/storefront/product-json-ld";
 import {
   getAllProductSlugs,
   getPrimaryImage,
   getProductBySlug,
   getSortedImages,
 } from "@/lib/db/products";
+import { buildPageMetadata } from "@/lib/seo/site";
 
 export const revalidate = 60;
 
@@ -29,15 +31,24 @@ export async function generateMetadata({
   const product = await getProductBySlug(params.slug);
 
   if (!product) {
-    return { title: "Product not found | BOOK MY TEES" };
+    return buildPageMetadata({
+      title: "Product not found",
+      description: "This product is unavailable or no longer listed.",
+      path: `/products/${params.slug}`,
+      noIndex: true,
+    });
   }
 
-  return {
-    title: `${product.name} | BOOK MY TEES`,
+  const primaryImage = getPrimaryImage(product);
+
+  return buildPageMetadata({
+    title: product.name,
     description:
       product.description ??
       `Shop ${product.name} at BOOK MY TEES — premium cotton tees with pan-India delivery.`,
-  };
+    path: `/products/${product.slug}`,
+    image: primaryImage,
+  });
 }
 
 export default async function ProductDetailPage({
@@ -54,6 +65,8 @@ export default async function ProductDetailPage({
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-14">
+      <ProductJsonLd product={product} images={images} />
+
       <nav className="mb-8 text-sm text-neutral-500">
         <Link href="/products" className="hover:text-neutral-950">
           Shop
