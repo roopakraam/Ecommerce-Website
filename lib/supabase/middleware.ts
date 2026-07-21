@@ -37,5 +37,37 @@ export async function updateSession(request: NextRequest) {
   // Validates the JWT and refreshes the session if expired.
   await supabase.auth.getClaims();
 
+  const isAdminDashboardRoute = request.nextUrl.pathname.startsWith(
+    "/admin/dashboard"
+  );
+
+  if (!isAdminDashboardRoute) {
+    return supabaseResponse;
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    const loginUrl = request.nextUrl.clone();
+    loginUrl.pathname = "/admin/login";
+    loginUrl.searchParams.set("next", request.nextUrl.pathname);
+    return NextResponse.redirect(loginUrl);
+  }
+
+  const { data: adminUser, error } = await supabase
+    .from("admin_users")
+    .select("id")
+    .eq("auth_user_id", user.id)
+    .maybeSingle();
+
+  if (error || !adminUser) {
+    const loginUrl = request.nextUrl.clone();
+    loginUrl.pathname = "/admin/login";
+    loginUrl.searchParams.set("next", request.nextUrl.pathname);
+    return NextResponse.redirect(loginUrl);
+  }
+
   return supabaseResponse;
 }
