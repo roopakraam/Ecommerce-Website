@@ -1,0 +1,94 @@
+---
+description: Core standards for Next.js 14+ e-commerce (Supabase, Tailwind, Razorpay)
+alwaysApply: true
+---
+
+# E-Commerce Project Standards
+
+Stack: **Next.js 14+ App Router**, **TypeScript (strict)**, **Supabase** (database/auth/storage), **Tailwind CSS**, **Razorpay**, **react-hook-form + zod**.
+
+## TypeScript
+
+- Use TypeScript everywhere — no `.js` source files.
+- Keep `strict: true` in `tsconfig.json`; do not weaken compiler options.
+- Prefer explicit types for public APIs, props, and database rows. Avoid `any`.
+
+## Next.js App Router
+
+- Use the `app/` directory only — **never** create a `pages/` directory.
+- Default to **Server Components**; add `"use client"` only when needed (hooks, browser APIs, interactivity).
+- Route Handlers live in `app/api/**/route.ts`.
+- Use `loading.tsx`, `error.tsx`, and `not-found.tsx` where appropriate.
+
+## Supabase Client Usage
+
+```typescript
+// ✅ Server Component or Route Handler
+import { createServerClient } from "@/lib/supabase/server";
+
+// ✅ Client Component
+import { createBrowserClient } from "@/lib/supabase/client";
+```
+
+- **Server Components / Route Handlers**: use the server client from `/lib/supabase/server`.
+- **Client Components**: use the browser client from `/lib/supabase/client` only.
+- Never import the browser client in server code or the server client in client components.
+
+## Database Access
+
+- **All** database reads/writes go through `/lib/supabase` or `/lib/db` — never in components or pages.
+- Components call server actions, route handlers, or lib functions; they do not run queries directly.
+- Never use raw SQL in UI layers. Encapsulate Supabase queries in named lib functions.
+
+```typescript
+// ❌ BAD — query in a component
+const { data } = await supabase.from("products").select("*");
+
+// ✅ GOOD — lib function consumed by Server Component
+import { getProducts } from "@/lib/db/products";
+const products = await getProducts();
+```
+
+## Types
+
+- Every new Supabase table needs a matching TypeScript type in `/types` (e.g. `/types/product.ts`).
+- Export row, insert, and update types where applicable. Keep types in sync with schema migrations.
+
+## Styling (Tailwind)
+
+- Use **Tailwind utility classes** for all styling.
+- No inline `style={{}}` props. No CSS Modules. No separate `.css` files for component styles (global `globals.css` for base/theme tokens only).
+
+## Forms & Validation
+
+- Use **react-hook-form** with **zod** schemas via `@hookform/resolvers/zod`.
+- Define schemas in `/lib/validations` or colocated with the feature; reuse schemas on client and server where possible.
+- Validate on the server for mutations even when client validation exists.
+
+## Naming Conventions
+
+| Kind | Convention | Example |
+|------|------------|---------|
+| Files & folders | kebab-case | `product-card.tsx`, `order-summary/` |
+| React components | PascalCase | `ProductCard`, `OrderSummary` |
+| Functions & variables | camelCase | `getOrderById`, `cartItems` |
+| Types & interfaces | PascalCase | `Product`, `OrderStatus` |
+| Constants | SCREAMING_SNAKE_CASE | `MAX_CART_QUANTITY` |
+
+## Payments (Razorpay)
+
+- Keep Razorpay secret keys server-side only (env vars, Route Handlers, server actions).
+- Client receives only the public key and order/session details needed to open checkout.
+- Verify payment signatures on the server before updating order status.
+
+## File Organization
+
+```
+app/           # routes, layouts, Server Components
+components/    # shared UI (kebab-case files, PascalCase exports)
+lib/
+  supabase/    # client factories (server.ts, client.ts)
+  db/          # database query functions
+  validations/ # zod schemas
+types/         # database & domain types
+```
