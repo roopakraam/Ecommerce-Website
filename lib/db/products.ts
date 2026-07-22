@@ -1,6 +1,6 @@
 import { getCategoryIdBySlug } from "@/lib/db/categories";
 import { createStaticClient } from "@/lib/supabase/static";
-import type { Product } from "@/types";
+import type { Product, ProductVariant } from "@/types";
 
 const FEATURED_PRODUCT_LIMIT = 8;
 
@@ -14,12 +14,24 @@ export interface ProductCategory {
   name: string;
 }
 
+export type StorefrontVariant = Pick<
+  ProductVariant,
+  | "id"
+  | "size"
+  | "color"
+  | "sku"
+  | "stock_quantity"
+  | "price_override"
+  | "is_active"
+>;
+
 export interface ProductWithImages extends Product {
   product_images: ProductImage[];
 }
 
 export interface ProductDetail extends ProductWithImages {
   categories: ProductCategory | null;
+  product_variants: StorefrontVariant[];
 }
 
 export type ProductSort = "newest" | "price-asc" | "price-desc";
@@ -30,6 +42,8 @@ export interface ProductListOptions {
 }
 
 const PRODUCT_SELECT = "*, product_images(url, position)";
+const PRODUCT_DETAIL_SELECT =
+  "*, product_images(url, position), product_variants(id, size, color, sku, stock_quantity, price_override, is_active)";
 
 function parseSort(sort?: string): ProductSort {
   if (sort === "price-asc" || sort === "price-desc") {
@@ -90,7 +104,7 @@ export async function getProductBySlug(
 
   const { data, error } = await supabase
     .from("products")
-    .select(`${PRODUCT_SELECT}, categories(slug, name)`)
+    .select(`${PRODUCT_DETAIL_SELECT}, categories(slug, name)`)
     .eq("slug", slug)
     .eq("is_active", true)
     .maybeSingle();
@@ -104,7 +118,12 @@ export async function getProductBySlug(
     return null;
   }
 
-  return data as ProductDetail;
+  const product = data as ProductDetail;
+  product.product_variants = (product.product_variants ?? []).filter(
+    (variant) => variant.is_active
+  );
+
+  return product;
 }
 
 export async function getAllProductSlugs(): Promise<string[]> {

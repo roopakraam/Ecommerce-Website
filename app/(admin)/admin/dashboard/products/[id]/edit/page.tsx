@@ -47,9 +47,20 @@ export default async function EditProductPage({
           name: product.name,
           description: product.description ?? "",
           price: Number(product.price),
-          stock_quantity: product.stock_quantity,
           category_id: product.category_id ?? "",
           is_active: product.is_active,
+          variants: product.product_variants.map((variant) => ({
+            id: variant.id,
+            size: variant.size,
+            color: variant.color,
+            sku: variant.sku,
+            stock_quantity: variant.stock_quantity,
+            price_override:
+              variant.price_override != null
+                ? Number(variant.price_override)
+                : null,
+            is_active: variant.is_active,
+          })),
         }}
         initialImages={product.product_images.map((image) => ({
           id: image.id,

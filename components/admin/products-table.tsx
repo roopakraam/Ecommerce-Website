@@ -146,6 +146,14 @@ export function ProductsTable({ products }: ProductsTableProps) {
                   </td>
                   <td className="px-4 py-3 text-neutral-200">
                     {product.stock_quantity}
+                    <span className="ml-1 text-xs text-neutral-500">
+                      (
+                      {
+                        (product.product_variants ?? []).filter((v) => v.is_active)
+                          .length
+                      }{" "}
+                      var)
+                    </span>
                   </td>
                   <td className="px-4 py-3">
                     <button

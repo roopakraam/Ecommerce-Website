@@ -1,104 +1,36 @@
 import { NextResponse } from "next/server";
+import { ensureCustomerProfile } from "@/lib/db/customers";
+import { reserveOrderInventory } from "@/lib/db/orders";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createServerClient } from "@/lib/supabase/server";
 import { checkoutRequestSchema } from "@/lib/validations/checkout";
-import type { Database } from "@/types";
+import type { Database, Product, ProductVariant } from "@/types";
 
-type DbProduct = Database["public"]["Tables"]["products"]["Row"];
-type DbCustomer = Database["public"]["Tables"]["customers"]["Row"];
+type VariantRow = ProductVariant & {
+  products:
+    | Pick<Product, "id" | "name" | "price" | "is_active">
+    | Pick<Product, "id" | "name" | "price" | "is_active">[]
+    | null;
+};
+
+function unwrapProduct(
+  products: VariantRow["products"]
+): Pick<Product, "id" | "name" | "price" | "is_active"> | null {
+  if (!products) return null;
+  return Array.isArray(products) ? products[0] ?? null : products;
+}
 
 function buildPaymentRedirect(orderId: string) {
   return `/checkout/payment?orderId=${orderId}`;
 }
 
-async function resolveAuthUserId(payload: {
-  isGuest: boolean;
-  email: string | null;
-  phone: string | null;
-  fullName: string | null;
-}): Promise<{ authUserId: string } | { error: string }> {
-  const supabase = await createServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (user) {
-    return { authUserId: user.id };
-  }
-
-  if (!payload.isGuest) {
-    return { error: "Please sign in to continue checkout." };
-  }
-
-  const admin = createAdminClient();
-  const randomPassword = `Guest#${crypto.randomUUID()}`;
-  const { data, error } = await admin.auth.admin.createUser({
-    email: payload.email ?? undefined,
-    phone: payload.phone ?? undefined,
-    email_confirm: false,
-    phone_confirm: false,
-    password: randomPassword,
-    user_metadata: {
-      guest_checkout: true,
-      full_name: payload.fullName,
-    },
-  });
-
-  if (error || !data.user) {
-    return {
-      error:
-        "Guest checkout could not be initialized. If this email already exists, please sign in and continue.",
-    };
-  }
-
-  return { authUserId: data.user.id };
-}
-
-async function getOrCreateCustomer(params: {
-  authUserId: string;
-  fullName: string | null;
-  phone: string | null;
-}): Promise<{ customer: DbCustomer } | { error: string }> {
-  const admin = createAdminClient();
-
-  const { data: existing, error: existingError } = await admin
-    .from("customers")
-    .select("*")
-    .eq("auth_user_id", params.authUserId)
-    .maybeSingle();
-
-  if (existingError) {
-    return { error: "Failed to fetch customer profile." };
-  }
-
-  if (existing) {
-    if (params.fullName || params.phone) {
-      await admin
-        .from("customers")
-        .update({
-          full_name: params.fullName ?? existing.full_name,
-          phone: params.phone ?? existing.phone,
-        })
-        .eq("id", existing.id);
-    }
-    return { customer: existing };
-  }
-
-  const { data: created, error: createError } = await admin
-    .from("customers")
-    .insert({
-      auth_user_id: params.authUserId,
-      full_name: params.fullName,
-      phone: params.phone,
-    })
-    .select("*")
-    .single();
-
-  if (createError || !created) {
-    return { error: "Failed to create customer profile." };
-  }
-
-  return { customer: created };
+function effectiveUnitPrice(
+  product: Pick<Product, "price">,
+  variant: Pick<ProductVariant, "price_override">
+): number {
+  return variant.price_override != null
+    ? Number(variant.price_override)
+    : Number(product.price);
 }
 
 export async function POST(request: Request) {
@@ -114,19 +46,28 @@ export async function POST(request: Request) {
     }
 
     const payload = parsed.data;
-    const authResult = await resolveAuthUserId({
-      isGuest: payload.isGuest,
-      email: payload.email ?? null,
-      phone: payload.phone ?? null,
-      fullName: payload.fullName ?? null,
-    });
 
-    if ("error" in authResult) {
-      return NextResponse.json({ error: authResult.error }, { status: 401 });
+    if (payload.isGuest) {
+      return NextResponse.json(
+        { error: "Please sign in to continue checkout." },
+        { status: 401 }
+      );
     }
 
-    const customerResult = await getOrCreateCustomer({
-      authUserId: authResult.authUserId,
+    const supabase = await createServerClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json(
+        { error: "Please sign in to continue checkout." },
+        { status: 401 }
+      );
+    }
+
+    const customerResult = await ensureCustomerProfile({
+      authUserId: user.id,
       fullName: payload.fullName ?? null,
       phone: payload.phone ?? null,
     });
@@ -136,49 +77,68 @@ export async function POST(request: Request) {
     }
 
     const admin = createAdminClient();
-    const productIds = Array.from(
-      new Set(payload.items.map((item) => item.productId))
+    const variantIds = Array.from(
+      new Set(payload.items.map((item) => item.variantId))
     );
-    const { data: products, error: productsError } = await admin
-      .from("products")
-      .select("id, name, price, stock_quantity, is_active")
-      .in("id", productIds);
 
-    if (productsError || !products) {
+    const { data: variants, error: variantsError } = await admin
+      .from("product_variants")
+      .select(
+        "id, product_id, size, color, sku, stock_quantity, price_override, is_active, products(id, name, price, is_active)"
+      )
+      .in("id", variantIds);
+
+    if (variantsError || !variants) {
       return NextResponse.json(
-        { error: "Failed to validate products in cart." },
+        { error: "Failed to validate cart variants." },
         { status: 500 }
       );
     }
 
-    const productMap = new Map<string, DbProduct>(
-      products.map((product) => [product.id, product as DbProduct])
+    const variantMap = new Map<string, VariantRow>(
+      (variants as VariantRow[]).map((variant) => [variant.id, variant])
     );
 
-    const orderItemsPayload: Database["public"]["Tables"]["order_items"]["Insert"][] = [];
+    const orderItemsPayload: Database["public"]["Tables"]["order_items"]["Insert"][] =
+      [];
     let subtotal = 0;
 
     for (const item of payload.items) {
-      const product = productMap.get(item.productId);
-      if (!product || !product.is_active) {
+      const variant = variantMap.get(item.variantId);
+      const product = unwrapProduct(variant?.products ?? null);
+
+      if (
+        !variant ||
+        !product ||
+        !variant.is_active ||
+        !product.is_active ||
+        variant.product_id !== item.productId
+      ) {
         return NextResponse.json(
           { error: "One or more products are unavailable." },
           { status: 400 }
         );
       }
 
-      if (product.stock_quantity < item.quantity) {
+      if (variant.stock_quantity < item.quantity) {
         return NextResponse.json(
-          { error: `Insufficient stock for ${product.name}.` },
+          {
+            error: `Insufficient stock for ${product.name} (${variant.size} / ${variant.color}).`,
+          },
           { status: 400 }
         );
       }
 
-      subtotal += product.price * item.quantity;
+      const unitPrice = effectiveUnitPrice(product, variant);
+      subtotal += unitPrice * item.quantity;
       orderItemsPayload.push({
         product_id: product.id,
+        variant_id: variant.id,
         product_name_snapshot: product.name,
-        unit_price: product.price,
+        size_snapshot: variant.size,
+        color_snapshot: variant.color,
+        sku_snapshot: variant.sku,
+        unit_price: unitPrice,
         quantity: item.quantity,
         order_id: "",
       });
@@ -198,6 +158,7 @@ export async function POST(request: Request) {
         shipping_fee: shippingFee,
         total,
         shipping_address: payload.address,
+        inventory_reserved: false,
       })
       .select("id")
       .single();
@@ -206,7 +167,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Failed to create order." }, { status: 500 });
     }
 
-    const orderId = order.id;
+    const orderId = order.id as string;
     const finalOrderItems = orderItemsPayload.map((item) => ({
       ...item,
       order_id: orderId,
@@ -222,6 +183,12 @@ export async function POST(request: Request) {
         { error: "Failed to create order items." },
         { status: 500 }
       );
+    }
+
+    const reserved = await reserveOrderInventory(orderId);
+    if (!reserved.ok) {
+      await admin.from("orders").delete().eq("id", orderId);
+      return NextResponse.json({ error: reserved.error }, { status: 400 });
     }
 
     if (payload.saveAddress) {

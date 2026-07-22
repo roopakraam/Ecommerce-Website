@@ -81,6 +81,18 @@ async function removeStoragePaths(urls: string[]) {
   }
 }
 
+function mapVariants(parsed: ReturnType<typeof adminProductFormSchema.parse>) {
+  return parsed.variants.map((variant) => ({
+    id: variant.id,
+    size: variant.size,
+    color: variant.color,
+    sku: variant.sku,
+    stock_quantity: variant.stock_quantity,
+    price_override: variant.price_override,
+    is_active: variant.is_active,
+  }));
+}
+
 export async function createProductAction(input: {
   form: unknown;
   images: unknown;
@@ -105,10 +117,10 @@ export async function createProductAction(input: {
         ? parsed.data.description.trim()
         : null,
       price: parsed.data.price,
-      stock_quantity: parsed.data.stock_quantity,
       category_id: parsed.data.category_id || null,
       is_active: parsed.data.is_active,
       images,
+      variants: mapVariants(parsed.data),
     });
 
     revalidatePath("/admin/dashboard/products");
@@ -151,10 +163,10 @@ export async function updateProductAction(input: {
           ? parsed.data.description.trim()
           : null,
         price: parsed.data.price,
-        stock_quantity: parsed.data.stock_quantity,
         category_id: parsed.data.category_id || null,
         is_active: parsed.data.is_active,
         images,
+        variants: mapVariants(parsed.data),
       }
     );
 

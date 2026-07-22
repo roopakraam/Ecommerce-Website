@@ -143,6 +143,14 @@ export default async function AdminOrderDetailPage({
                   <p className="font-medium text-white">
                     {item.product_name_snapshot}
                   </p>
+                  {(item.size_snapshot || item.color_snapshot) && (
+                    <p className="mt-0.5 text-xs text-neutral-500">
+                      {[item.size_snapshot, item.color_snapshot]
+                        .filter(Boolean)
+                        .join(" / ")}
+                      {item.sku_snapshot ? ` · ${item.sku_snapshot}` : ""}
+                    </p>
+                  )}
                   <p className="mt-0.5 text-xs text-neutral-500">
                     {formatPrice(Number(item.unit_price))} × {item.quantity}
                   </p>

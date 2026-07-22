@@ -113,10 +113,14 @@ export default async function ProductDetailPage({
             productId={product.id}
             slug={product.slug}
             name={product.name}
-            price={product.price}
-            compareAtPrice={product.compare_at_price}
-            stockQuantity={product.stock_quantity}
+            basePrice={Number(product.price)}
+            compareAtPrice={
+              product.compare_at_price != null
+                ? Number(product.compare_at_price)
+                : null
+            }
             imageUrl={primaryImage}
+            variants={product.product_variants}
           />
         </div>
       </div>

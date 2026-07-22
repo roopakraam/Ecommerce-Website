@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import {
-  getOrderForPayment,
+  requireOrderOwnerOrAdmin,
   setOrderPaymentReference,
 } from "@/lib/db/orders";
 import {
@@ -23,11 +23,16 @@ export async function POST(request: Request) {
     }
 
     const { orderId } = parsed.data;
-    const order = await getOrderForPayment(orderId);
+    const access = await requireOrderOwnerOrAdmin(orderId);
 
-    if (!order) {
-      return NextResponse.json({ error: "Order not found." }, { status: 404 });
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: access.error },
+        { status: access.status }
+      );
     }
+
+    const order = access.order!;
 
     if (order.payment_status === "paid") {
       return NextResponse.json(
@@ -43,13 +48,28 @@ export async function POST(request: Request) {
       );
     }
 
+    // Reuse existing Razorpay order when payment_reference is still the order id
+    if (
+      order.payment_reference &&
+      order.payment_reference.startsWith("order_")
+    ) {
+      const amountInPaise = rupeesToPaise(order.total);
+      return NextResponse.json({
+        keyId: getRazorpayKeyId(),
+        razorpayOrderId: order.payment_reference,
+        amount: amountInPaise,
+        currency: "INR",
+        orderTotal: order.total,
+      });
+    }
+
     const razorpay = getRazorpayClient();
     const amountInPaise = rupeesToPaise(order.total);
 
     const razorpayOrder = await razorpay.orders.create({
       amount: amountInPaise,
       currency: "INR",
-      receipt: orderId,
+      receipt: orderId.slice(0, 40),
       notes: {
         supabase_order_id: orderId,
       },

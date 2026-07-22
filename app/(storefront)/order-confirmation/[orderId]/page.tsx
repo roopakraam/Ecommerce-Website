@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import {
   CheckCircle2,
   Clock,
@@ -9,7 +9,10 @@ import {
   Package,
   CreditCard,
 } from "lucide-react";
-import { getOrderConfirmation } from "@/lib/db/orders";
+import {
+  getOrderConfirmation,
+  requireOrderOwnerOrAdmin,
+} from "@/lib/db/orders";
 import { formatPrice } from "@/lib/utils/format-price";
 import { ClearCartOnMount } from "@/components/storefront/clear-cart-on-mount";
 import { buildPageMetadata } from "@/lib/seo/site";
@@ -75,6 +78,16 @@ const PAYMENT_STATUS_CONFIG: Record<
 };
 
 export default async function OrderConfirmationPage({ params }: PageProps) {
+  const access = await requireOrderOwnerOrAdmin(params.orderId);
+  if (!access.ok) {
+    if (access.status === 401) {
+      redirect(
+        `/login?next=${encodeURIComponent(`/order-confirmation/${params.orderId}`)}`
+      );
+    }
+    notFound();
+  }
+
   const order = await getOrderConfirmation(params.orderId);
 
   if (!order) {
@@ -142,6 +155,13 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
                 <p className="text-sm font-semibold text-neutral-950">
                   {item.product_name_snapshot}
                 </p>
+                {(item.size_snapshot || item.color_snapshot) && (
+                  <p className="mt-0.5 text-xs text-neutral-500">
+                    {[item.size_snapshot, item.color_snapshot]
+                      .filter(Boolean)
+                      .join(" / ")}
+                  </p>
+                )}
                 <p className="mt-0.5 text-xs text-neutral-500">
                   {formatPrice(item.unit_price)} × {item.quantity}
                 </p>

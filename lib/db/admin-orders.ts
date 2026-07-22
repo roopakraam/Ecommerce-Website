@@ -130,7 +130,7 @@ export async function getAdminOrderById(
   const { data, error } = await supabase
     .from("orders")
     .select(
-      "id, customer_id, status, subtotal, shipping_fee, total, payment_status, payment_provider, payment_reference, shipping_address, created_at, customers(id, full_name, phone), order_items(id, order_id, product_id, product_name_snapshot, unit_price, quantity)"
+      "id, customer_id, status, subtotal, shipping_fee, total, payment_status, payment_provider, payment_reference, shipping_address, created_at, customers(id, full_name, phone), order_items(id, order_id, product_id, variant_id, product_name_snapshot, size_snapshot, color_snapshot, sku_snapshot, unit_price, quantity)"
     )
     .eq("id", id)
     .maybeSingle();

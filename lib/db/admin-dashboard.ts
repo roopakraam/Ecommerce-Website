@@ -1,5 +1,5 @@
 import { createServerClient } from "@/lib/supabase/server";
-import type { OrderStatus, PaymentStatus, Product } from "@/types";
+import type { OrderStatus, PaymentStatus } from "@/types";
 
 const TIME_ZONE = "Asia/Kolkata";
 
@@ -14,8 +14,11 @@ export interface DashboardRecentOrder {
 
 export interface DashboardLowStockProduct {
   id: string;
+  productId: string;
   name: string;
-  slug: string;
+  size: string;
+  color: string;
+  sku: string;
   stock_quantity: number;
   is_active: boolean;
 }
@@ -126,11 +129,13 @@ export async function getAdminDashboardStats(): Promise<AdminDashboardStats> {
       .eq("payment_status", "paid")
       .gte("created_at", weekStartIso),
     supabase
-      .from("products")
-      .select("id, name, slug, stock_quantity, is_active")
+      .from("product_variants")
+      .select(
+        "id, size, color, sku, stock_quantity, is_active, product_id, products(id, name, is_active)"
+      )
       .lt("stock_quantity", 5)
       .order("stock_quantity", { ascending: true })
-      .limit(10),
+      .limit(15),
     supabase
       .from("orders")
       .select(
@@ -156,7 +161,7 @@ export async function getAdminDashboardStats(): Promise<AdminDashboardStats> {
   }
 
   if (lowStockResult.error) {
-    console.error("Failed to load low-stock products:", lowStockResult.error.message);
+    console.error("Failed to load low-stock variants:", lowStockResult.error.message);
     throw new Error("Failed to load dashboard stats.");
   }
 
@@ -170,17 +175,34 @@ export async function getAdminDashboardStats(): Promise<AdminDashboardStats> {
   ).reduce((sum, row) => sum + Number(row.total), 0);
 
   const lowStockProducts = (
-    (lowStockResult.data ?? []) as Pick<
-      Product,
-      "id" | "name" | "slug" | "stock_quantity" | "is_active"
-    >[]
-  ).map((product) => ({
-    id: product.id,
-    name: product.name,
-    slug: product.slug,
-    stock_quantity: product.stock_quantity,
-    is_active: product.is_active,
-  }));
+    (lowStockResult.data ?? []) as Array<{
+      id: string;
+      product_id: string;
+      size: string;
+      color: string;
+      sku: string;
+      stock_quantity: number;
+      is_active: boolean;
+      products:
+        | { id: string; name: string; is_active: boolean }
+        | Array<{ id: string; name: string; is_active: boolean }>
+        | null;
+    }>
+  ).map((variant) => {
+    const product = Array.isArray(variant.products)
+      ? variant.products[0]
+      : variant.products;
+    return {
+      id: variant.id,
+      productId: variant.product_id,
+      name: product?.name ?? "Unknown product",
+      size: variant.size,
+      color: variant.color,
+      sku: variant.sku,
+      stock_quantity: variant.stock_quantity,
+      is_active: variant.is_active && (product?.is_active ?? false),
+    };
+  });
 
   const recentOrders = (
     (recentOrdersResult.data ?? []) as Array<{

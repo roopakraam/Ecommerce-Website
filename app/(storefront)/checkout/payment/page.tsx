@@ -1,7 +1,7 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { RazorpayCheckout } from "@/components/storefront/razorpay-checkout";
-import { getOrderForPayment } from "@/lib/db/orders";
+import { requireOrderOwnerOrAdmin } from "@/lib/db/orders";
 import { buildPageMetadata } from "@/lib/seo/site";
 
 export const metadata = buildPageMetadata({
@@ -40,11 +40,16 @@ export default async function CheckoutPaymentPage({
     );
   }
 
-  const order = await getOrderForPayment(orderId);
+  const access = await requireOrderOwnerOrAdmin(orderId);
 
-  if (!order) {
+  if (!access.ok) {
+    if (access.status === 401) {
+      redirect(`/login?next=${encodeURIComponent(`/checkout/payment?orderId=${orderId}`)}`);
+    }
     notFound();
   }
+
+  const order = access.order!;
 
   return (
     <main className="mx-auto max-w-4xl px-4 py-10 sm:px-6 sm:py-14">
@@ -53,8 +58,9 @@ export default async function CheckoutPaymentPage({
           Complete payment
         </h1>
         <p className="mt-2 text-sm text-neutral-600 sm:text-base">
-          Pay securely with Razorpay. Your order is reserved while you complete
-          checkout.
+          {order.inventory_reserved
+            ? "Pay securely with Razorpay. Stock for this order is held while you complete checkout."
+            : "Pay securely with Razorpay to confirm your BOOK MY TEES order."}
         </p>
       </div>
 

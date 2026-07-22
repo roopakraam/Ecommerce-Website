@@ -20,8 +20,8 @@ export default async function CheckoutPage() {
           Checkout
         </h1>
         <p className="mt-2 text-sm text-neutral-600 sm:text-base">
-          Enter shipping details to create your order. Payment is completed in the
-          next step.
+          Enter shipping details to create your order. Payment is completed in
+          the next step.
         </p>
       </div>
 

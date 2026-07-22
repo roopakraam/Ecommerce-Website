@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import {
-  getOrderForPayment,
-  markOrderPaymentPaid,
+  confirmOrderPaymentPaid,
+  requireOrderOwnerOrAdmin,
 } from "@/lib/db/orders";
 import { notifyOrderPaid } from "@/lib/notifications/order-confirmation";
 import { verifyRazorpayPaymentSignature } from "@/lib/razorpay/verify-signature";
@@ -26,6 +26,16 @@ export async function POST(request: Request) {
       razorpay_signature,
     } = parsed.data;
 
+    const access = await requireOrderOwnerOrAdmin(orderId);
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: access.error },
+        { status: access.status }
+      );
+    }
+
+    const order = access.order!;
+
     const secret = process.env.RAZORPAY_KEY_SECRET;
     if (!secret) {
       return NextResponse.json(
@@ -48,11 +58,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const order = await getOrderForPayment(orderId);
-    if (!order) {
-      return NextResponse.json({ error: "Order not found." }, { status: 404 });
-    }
-
     if (order.payment_status === "paid") {
       return NextResponse.json({
         success: true,
@@ -62,7 +67,7 @@ export async function POST(request: Request) {
     }
 
     if (
-      order.payment_reference &&
+      !order.payment_reference ||
       order.payment_reference !== razorpay_order_id
     ) {
       return NextResponse.json(
@@ -71,21 +76,20 @@ export async function POST(request: Request) {
       );
     }
 
-    const updated = await markOrderPaymentPaid({
+    const updated = await confirmOrderPaymentPaid({
       orderId,
       razorpayPaymentId: razorpay_payment_id,
       razorpayOrderId: razorpay_order_id,
     });
 
-    if (!updated) {
-      return NextResponse.json(
-        { error: "Failed to update order payment status." },
-        { status: 500 }
-      );
+    if (!updated.ok) {
+      return NextResponse.json({ error: updated.error }, { status: 500 });
     }
 
-    // Safe: notifyOrderPaid swallows provider errors so payment success is preserved.
-    await notifyOrderPaid(orderId);
+    if (!updated.alreadyPaid) {
+      // Safe: notifyOrderPaid swallows provider errors so payment success is preserved.
+      await notifyOrderPaid(orderId);
+    }
 
     return NextResponse.json({
       success: true,

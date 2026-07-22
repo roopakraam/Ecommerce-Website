@@ -3,17 +3,19 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Minus, Plus, ShoppingBag, Trash2 } from "lucide-react";
-import { useCartStore } from "@/lib/store/cart";
+import { useCartHasHydrated, useCartStore } from "@/lib/store/cart";
 import { formatPrice } from "@/lib/utils/format-price";
 
 export default function CartPage() {
+  const hasHydrated = useCartHasHydrated();
   const items = useCartStore((s) => s.items);
   const removeItem = useCartStore((s) => s.removeItem);
   const updateQuantity = useCartStore((s) => s.updateQuantity);
   const clearCart = useCartStore((s) => s.clearCart);
   const subtotal = useCartStore((s) => s.subtotal());
+  const cartItems = hasHydrated ? items : [];
 
-  if (items.length === 0) {
+  if (!hasHydrated || cartItems.length === 0) {
     return (
       <main className="mx-auto flex max-w-6xl flex-col items-center px-4 py-20 text-center sm:px-6">
         <div className="flex h-20 w-20 items-center justify-center rounded-full bg-neutral-100">
@@ -55,7 +57,7 @@ export default function CartPage() {
         {/* Item list */}
         <ul className="divide-y divide-neutral-200 border-y border-neutral-200">
           {items.map((item) => (
-            <li key={item.productId} className="flex gap-5 py-6">
+            <li key={item.variantId} className="flex gap-5 py-6">
               <Link
                 href={`/products/${item.slug}`}
                 className="relative h-24 w-24 flex-shrink-0 overflow-hidden rounded-xl bg-neutral-100 sm:h-28 sm:w-28"
@@ -82,6 +84,9 @@ export default function CartPage() {
                 >
                   {item.name}
                 </Link>
+                <p className="text-xs text-neutral-500">
+                  {item.size} / {item.color}
+                </p>
                 <p className="text-sm font-bold text-neutral-950">
                   {formatPrice(item.unitPrice)}
                 </p>
@@ -91,7 +96,7 @@ export default function CartPage() {
                     <button
                       type="button"
                       onClick={() =>
-                        updateQuantity(item.productId, item.quantity - 1)
+                        updateQuantity(item.variantId, item.quantity - 1)
                       }
                       disabled={item.quantity <= 1}
                       className="px-3 py-2 text-neutral-500 transition hover:text-neutral-950 disabled:opacity-40"
@@ -105,7 +110,7 @@ export default function CartPage() {
                     <button
                       type="button"
                       onClick={() =>
-                        updateQuantity(item.productId, item.quantity + 1)
+                        updateQuantity(item.variantId, item.quantity + 1)
                       }
                       disabled={item.quantity >= item.maxQuantity}
                       className="px-3 py-2 text-neutral-500 transition hover:text-neutral-950 disabled:opacity-40"
@@ -121,7 +126,7 @@ export default function CartPage() {
                     </p>
                     <button
                       type="button"
-                      onClick={() => removeItem(item.productId)}
+                      onClick={() => removeItem(item.variantId)}
                       className="rounded-full p-1.5 text-neutral-400 transition hover:bg-red-50 hover:text-red-600"
                       aria-label={`Remove ${item.name}`}
                     >

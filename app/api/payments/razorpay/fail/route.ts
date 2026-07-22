@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import {
-  getOrderForPayment,
   markOrderPaymentFailed,
+  requireOrderOwnerOrAdmin,
 } from "@/lib/db/orders";
 import { failRazorpayPaymentSchema } from "@/lib/validations/payment";
 
@@ -18,11 +18,16 @@ export async function POST(request: Request) {
     }
 
     const { orderId } = parsed.data;
-    const order = await getOrderForPayment(orderId);
+    const access = await requireOrderOwnerOrAdmin(orderId);
 
-    if (!order) {
-      return NextResponse.json({ error: "Order not found." }, { status: 404 });
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: access.error },
+        { status: access.status }
+      );
     }
+
+    const order = access.order!;
 
     if (order.payment_status === "paid") {
       return NextResponse.json({ success: true, alreadyPaid: true });

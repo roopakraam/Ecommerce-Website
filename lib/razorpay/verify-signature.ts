@@ -1,5 +1,16 @@
 import crypto from "crypto";
 
+function timingSafeEqualHex(expected: string, actual: string): boolean {
+  const expectedBuffer = Buffer.from(expected);
+  const actualBuffer = Buffer.from(actual);
+
+  if (expectedBuffer.length !== actualBuffer.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(expectedBuffer, actualBuffer);
+}
+
 export function verifyRazorpayPaymentSignature(params: {
   razorpayOrderId: string;
   razorpayPaymentId: string;
@@ -12,12 +23,19 @@ export function verifyRazorpayPaymentSignature(params: {
     .update(body)
     .digest("hex");
 
-  const expectedBuffer = Buffer.from(expected);
-  const signatureBuffer = Buffer.from(params.razorpaySignature);
+  return timingSafeEqualHex(expected, params.razorpaySignature);
+}
 
-  if (expectedBuffer.length !== signatureBuffer.length) {
-    return false;
-  }
+/** Razorpay webhook signature: HMAC-SHA256 of raw body with webhook secret. */
+export function verifyRazorpayWebhookSignature(params: {
+  rawBody: string;
+  signature: string;
+  secret: string;
+}): boolean {
+  const expected = crypto
+    .createHmac("sha256", params.secret)
+    .update(params.rawBody)
+    .digest("hex");
 
-  return crypto.timingSafeEqual(expectedBuffer, signatureBuffer);
+  return timingSafeEqualHex(expected, params.signature);
 }

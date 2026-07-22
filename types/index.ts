@@ -27,5 +27,8 @@ export type {
   ProductImageUpdate,
   ProductInsert,
   ProductUpdate,
+  ProductVariant,
+  ProductVariantInsert,
+  ProductVariantUpdate,
   ShippingAddress,
 } from "./database";

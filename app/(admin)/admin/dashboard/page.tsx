@@ -121,34 +121,35 @@ export default async function AdminDashboardPage() {
 
           {stats.lowStockProducts.length === 0 ? (
             <p className="px-5 py-10 text-center text-sm text-neutral-500">
-              No products below 5 units.
+              No variants below 5 units.
             </p>
           ) : (
             <ul className="divide-y divide-neutral-800">
-              {stats.lowStockProducts.map((product) => (
+              {stats.lowStockProducts.map((variant) => (
                 <li
-                  key={product.id}
+                  key={variant.id}
                   className="flex items-center justify-between gap-3 px-5 py-3.5"
                 >
                   <div>
                     <Link
-                      href={`/admin/dashboard/products/${product.id}/edit`}
+                      href={`/admin/dashboard/products/${variant.productId}/edit`}
                       className="text-sm font-medium text-white hover:text-lime-300"
                     >
-                      {product.name}
+                      {variant.name}
                     </Link>
                     <p className="mt-0.5 text-xs text-neutral-500">
-                      {product.is_active ? "Active" : "Inactive"}
+                      {variant.size} / {variant.color}
+                      {variant.is_active ? "" : " · Inactive"}
                     </p>
                   </div>
                   <span
                     className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
-                      product.stock_quantity === 0
+                      variant.stock_quantity === 0
                         ? "border-red-800 bg-red-950 text-red-300"
                         : "border-amber-700 bg-amber-950 text-amber-300"
                     }`}
                   >
-                    {product.stock_quantity} left
+                    {variant.stock_quantity} left
                   </span>
                 </li>
               ))}

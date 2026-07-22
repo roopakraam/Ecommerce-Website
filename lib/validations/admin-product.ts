@@ -8,22 +8,80 @@ const priceSchema = z
     "Price must have at most 2 decimal places"
   );
 
-export const adminProductFormSchema = z.object({
-  name: z.string().trim().min(1, "Name is required").max(200),
-  description: z.union([z.string().trim().max(5000), z.literal("")]),
-  price: priceSchema,
+export const adminProductVariantSchema = z.object({
+  id: z.string().uuid().optional(),
+  size: z.string().trim().min(1, "Size is required").max(40),
+  color: z.string().trim().min(1, "Colour is required").max(40),
+  sku: z.string().trim().min(1, "SKU is required").max(80),
   stock_quantity: z
     .number({ error: "Stock must be a number" })
     .int("Stock must be a whole number")
     .min(0, "Stock cannot be negative"),
-  category_id: z.union([
-    z.string().uuid("Select a valid category"),
-    z.literal(""),
-  ]),
+  price_override: z
+    .number({ error: "Override price must be a number" })
+    .min(0, "Override price cannot be negative")
+    .nullable(),
   is_active: z.boolean(),
 });
 
+export const adminProductFormSchema = z
+  .object({
+    name: z.string().trim().min(1, "Name is required").max(200),
+    description: z.union([z.string().trim().max(5000), z.literal("")]),
+    price: priceSchema,
+    category_id: z.union([
+      z.string().uuid("Select a valid category"),
+      z.literal(""),
+    ]),
+    is_active: z.boolean(),
+    variants: z
+      .array(adminProductVariantSchema)
+      .min(1, "Add at least one size/colour variant"),
+  })
+  .superRefine((data, ctx) => {
+    const seenSku = new Set<string>();
+    const seenCombo = new Set<string>();
+
+    data.variants.forEach((variant, index) => {
+      const skuKey = variant.sku.toLowerCase();
+      if (seenSku.has(skuKey)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["variants", index, "sku"],
+          message: "SKU must be unique",
+        });
+      }
+      seenSku.add(skuKey);
+
+      const comboKey = `${variant.size.toLowerCase()}::${variant.color.toLowerCase()}`;
+      if (seenCombo.has(comboKey)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["variants", index, "size"],
+          message: "Duplicate size/colour combination",
+        });
+      }
+      seenCombo.add(comboKey);
+
+      if (
+        variant.price_override != null &&
+        !(
+          Number.isFinite(variant.price_override) &&
+          Math.round(variant.price_override * 100) ===
+            variant.price_override * 100
+        )
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["variants", index, "price_override"],
+          message: "Override price must have at most 2 decimal places",
+        });
+      }
+    });
+  });
+
 export type AdminProductFormInput = z.infer<typeof adminProductFormSchema>;
+export type AdminProductVariantInput = z.infer<typeof adminProductVariantSchema>;
 
 export const adminProductImageSchema = z.object({
   url: z.string().url(),
@@ -32,3 +90,5 @@ export const adminProductImageSchema = z.object({
 });
 
 export type AdminProductImageInput = z.infer<typeof adminProductImageSchema>;
+
+export const COMMON_PRODUCT_SIZES = ["XS", "S", "M", "L", "XL", "XXL"] as const;

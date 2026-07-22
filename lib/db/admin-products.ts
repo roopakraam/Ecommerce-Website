@@ -1,16 +1,31 @@
 import { createServerClient } from "@/lib/supabase/server";
-import type { Category, Product, ProductImage } from "@/types";
+import type { Category, Product, ProductImage, ProductVariant } from "@/types";
 
 export type AdminProductImage = ProductImage;
 
 export interface AdminProductListItem extends Product {
   categories: Pick<Category, "id" | "name" | "slug"> | null;
   product_images: Pick<ProductImage, "id" | "url" | "position">[];
+  product_variants?: Pick<
+    ProductVariant,
+    "id" | "stock_quantity" | "is_active"
+  >[];
 }
 
 export interface AdminProductDetail extends Product {
   categories: Pick<Category, "id" | "name" | "slug"> | null;
   product_images: AdminProductImage[];
+  product_variants: ProductVariant[];
+}
+
+export interface AdminVariantWriteInput {
+  id?: string;
+  size: string;
+  color: string;
+  sku: string;
+  stock_quantity: number;
+  price_override: number | null;
+  is_active: boolean;
 }
 
 export interface AdminProductWriteInput {
@@ -18,10 +33,10 @@ export interface AdminProductWriteInput {
   slug: string;
   description: string | null;
   price: number;
-  stock_quantity: number;
   category_id: string | null;
   is_active: boolean;
   images: Array<{ url: string; position: number }>;
+  variants: AdminVariantWriteInput[];
 }
 
 async function assertAdmin() {
@@ -47,13 +62,87 @@ async function assertAdmin() {
   return supabase;
 }
 
+async function replaceProductVariants(
+  supabase: Awaited<ReturnType<typeof assertAdmin>>,
+  productId: string,
+  variants: AdminVariantWriteInput[]
+) {
+  const { data: existing, error: existingError } = await supabase
+    .from("product_variants")
+    .select("id")
+    .eq("product_id", productId);
+
+  if (existingError) {
+    console.error("Failed to load variants:", existingError.message);
+    throw new Error("Failed to update product variants.");
+  }
+
+  const existingIds = new Set(
+    ((existing ?? []) as Array<{ id: string }>).map((row) => row.id)
+  );
+  const keptIds = new Set(
+    variants.map((variant) => variant.id).filter((id): id is string => Boolean(id))
+  );
+
+  const toDelete = Array.from(existingIds).filter((id) => !keptIds.has(id));
+  if (toDelete.length > 0) {
+    const { error: deleteError } = await supabase
+      .from("product_variants")
+      .delete()
+      .in("id", toDelete);
+
+    if (deleteError) {
+      console.error("Failed to delete variants:", deleteError.message);
+      throw new Error("Failed to update product variants.");
+    }
+  }
+
+  for (const variant of variants) {
+    if (variant.id && existingIds.has(variant.id)) {
+      const { error } = await supabase
+        .from("product_variants")
+        .update({
+          size: variant.size,
+          color: variant.color,
+          sku: variant.sku,
+          stock_quantity: variant.stock_quantity,
+          price_override: variant.price_override,
+          is_active: variant.is_active,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", variant.id)
+        .eq("product_id", productId);
+
+      if (error) {
+        console.error("Failed to update variant:", error.message);
+        throw new Error(error.message || "Failed to update product variants.");
+      }
+    } else {
+      const { error } = await supabase.from("product_variants").insert({
+        product_id: productId,
+        size: variant.size,
+        color: variant.color,
+        sku: variant.sku,
+        stock_quantity: variant.stock_quantity,
+        price_override: variant.price_override,
+        is_active: variant.is_active,
+      });
+
+      if (error) {
+        console.error("Failed to insert variant:", error.message);
+        throw new Error(error.message || "Failed to create product variants.");
+      }
+    }
+  }
+}
+
 export async function getAdminProducts(): Promise<AdminProductListItem[]> {
   const supabase = await assertAdmin();
 
   const { data, error } = await supabase
     .from("products")
     .select(
-      "*, categories(id, name, slug), product_images(id, url, position)"
+      "*, categories(id, name, slug), product_images(id, url, position), product_variants(id, stock_quantity, is_active)"
     )
     .order("created_at", { ascending: false });
 
@@ -73,7 +162,7 @@ export async function getAdminProductById(
   const { data, error } = await supabase
     .from("products")
     .select(
-      "*, categories(id, name, slug), product_images(id, url, position)"
+      "*, categories(id, name, slug), product_images(id, url, position), product_variants(*)"
     )
     .eq("id", id)
     .maybeSingle();
@@ -91,6 +180,9 @@ export async function getAdminProductById(
   product.product_images = [...product.product_images].sort(
     (a, b) => a.position - b.position
   );
+  product.product_variants = [...(product.product_variants ?? [])].sort((a, b) =>
+    `${a.size}-${a.color}`.localeCompare(`${b.size}-${b.color}`)
+  );
 
   return product;
 }
@@ -107,7 +199,7 @@ export async function createAdminProduct(
       slug: input.slug,
       description: input.description,
       price: input.price,
-      stock_quantity: input.stock_quantity,
+      stock_quantity: 0,
       category_id: input.category_id,
       is_active: input.is_active,
     })
@@ -119,10 +211,19 @@ export async function createAdminProduct(
     throw new Error(error?.message ?? "Failed to create product.");
   }
 
+  const created = product as Product;
+
+  try {
+    await replaceProductVariants(supabase, created.id, input.variants);
+  } catch (variantError) {
+    await supabase.from("products").delete().eq("id", created.id);
+    throw variantError;
+  }
+
   if (input.images.length > 0) {
     const { error: imagesError } = await supabase.from("product_images").insert(
       input.images.map((image) => ({
-        product_id: (product as Product).id,
+        product_id: created.id,
         url: image.url,
         position: image.position,
       }))
@@ -134,7 +235,7 @@ export async function createAdminProduct(
     }
   }
 
-  return product as Product;
+  return created;
 }
 
 export async function updateAdminProduct(
@@ -163,7 +264,6 @@ export async function updateAdminProduct(
       slug: input.slug,
       description: input.description,
       price: input.price,
-      stock_quantity: input.stock_quantity,
       category_id: input.category_id,
       is_active: input.is_active,
       updated_at: new Date().toISOString(),
@@ -176,6 +276,8 @@ export async function updateAdminProduct(
     console.error("Failed to update product:", error?.message);
     throw new Error(error?.message ?? "Failed to update product.");
   }
+
+  await replaceProductVariants(supabase, id, input.variants);
 
   const { error: deleteImagesError } = await supabase
     .from("product_images")

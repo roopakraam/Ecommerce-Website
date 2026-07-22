@@ -2,17 +2,21 @@
 
 This project is a **Next.js 14 App Router** app. Vercel detects Next.js automatically — a `vercel.json` is **not required**. Framework settings, builds, and serverless routing are handled by the Vercel Next.js runtime.
 
+**No custom domain yet?** Deploy first on the free `*.vercel.app` URL. Use that URL for `NEXT_PUBLIC_SITE_URL`, Supabase Auth redirects, and the Razorpay webhook. Attach a custom domain later and update those three places.
+
 ---
 
 ## 1. Pre-flight checklist
 
-- [ ] Run both SQL migrations in the Supabase SQL editor (or via CLI):
+- [ ] Run SQL migrations in the Supabase SQL editor (or via CLI), in order:
   - `supabase/migrations/20260721133000_initial_ecommerce_schema.sql`
   - `supabase/migrations/20260721140000_product_images_storage.sql`
   - `supabase/migrations/20260721143000_harden_products_public_read.sql`
+  - `supabase/migrations/20260722090000_harden_orders_rls.sql`
+  - `supabase/migrations/20260722091000_product_variants_and_inventory.sql`
 - [ ] Create at least one Auth user and insert a matching `admin_users` row (see below)
-- [ ] Confirm Razorpay keys (test or live) and webhook/callback domains if used
-- [ ] Set `NEXT_PUBLIC_SITE_URL` to your production domain (no trailing slash)
+- [ ] Confirm Razorpay keys (use **test** keys until go-live)
+- [ ] Set `NEXT_PUBLIC_SITE_URL` — use `https://YOUR_PROJECT.vercel.app` until a custom domain exists (no trailing slash)
 
 ---
 
@@ -26,9 +30,16 @@ This project is a **Next.js 14 App Router** app. Vercel detects Next.js automati
    - **Install Command:** `npm install`
    - **Output Directory:** leave empty (Next.js)
 5. Add environment variables (section 3) for **Production** (and Preview if you want).
+   - At minimum for a successful **build**, set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` (product SSG fetches at build time).
 6. Deploy.
 
-After the first deploy, open **Project → Settings → Domains** and attach your custom domain. Then update `NEXT_PUBLIC_SITE_URL` to that domain and redeploy.
+After the first deploy, copy the production URL (e.g. `https://ecommerce-website-xxxx.vercel.app`). Then:
+
+1. Set `NEXT_PUBLIC_SITE_URL` to that URL (no trailing slash) and **redeploy**.
+2. Update Supabase Auth Site URL / Redirect URLs (section 5).
+3. Create the Razorpay webhook with that URL (section 7).
+
+When you buy a domain later: Project → **Settings → Domains** → attach it, then update `NEXT_PUBLIC_SITE_URL`, Supabase Auth URLs, and the Razorpay webhook URL.
 
 ---
 
@@ -40,12 +51,13 @@ Add each variable below. Prefer scoping secrets to **Production** only; use Prev
 
 | Variable | Required | Public? | Example / notes |
 |---|---|---|---|
-| `NEXT_PUBLIC_SITE_URL` | Yes (prod) | Yes | `https://www.bookmytees.com` — used for sitemap, canonicals, Open Graph. No trailing slash. |
+| `NEXT_PUBLIC_SITE_URL` | Yes (prod) | Yes | `https://your-project.vercel.app` or custom domain — sitemap, canonicals, Open Graph. No trailing slash. |
 | `NEXT_PUBLIC_SUPABASE_URL` | Yes | Yes | `https://YOUR_REF.supabase.co` — **project URL only**, never append `/rest/v1/` |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Yes | Supabase → Project Settings → API → `anon` `public` key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | **No** | Supabase → API → `service_role` `secret` key. **Never** prefix with `NEXT_PUBLIC_`. Never commit. |
 | `RAZORPAY_KEY_ID` | Yes | No* | Razorpay Dashboard → API Keys. Returned to the browser only via your create-order API. |
 | `RAZORPAY_KEY_SECRET` | Yes | **No** | Razorpay secret. Server-only (verify signatures). |
+| `RAZORPAY_WEBHOOK_SECRET` | Recommended (prod) | **No** | Created when you add a webhook (section 7). Can deploy first without it; client verify still works. Add before real traffic. |
 | `RESEND_API_KEY` | Optional | **No** | Resend API key. If missing, email confirmation uses a stub logger. |
 | `RESEND_FROM_EMAIL` | Optional† | No | e.g. `BOOK MY TEES <orders@yourdomain.com>` — must be a verified Resend sender/domain. |
 | `TWILIO_ACCOUNT_SID` | Optional | **No** | Twilio Console → Account SID |
@@ -64,7 +76,7 @@ Add each variable below. Prefer scoping secrets to **Production** only; use Prev
 
 ### Local `.env.local` reminder
 
-Match the same keys locally. Never commit `.env.local`. Use `.env.local.example` as a template.
+Match the same keys locally. Never commit `.env` or `.env.local`. Use `.env.local.example` as a template.
 
 ---
 
@@ -91,8 +103,11 @@ Sign in at `/admin/login`.
 
 In Supabase → **Authentication → URL configuration**:
 
-- **Site URL:** your production origin, e.g. `https://www.bookmytees.com`
-- **Redirect URLs:** include `https://www.bookmytees.com/**` and `http://localhost:3000/**` for local
+- **Site URL:** your production origin, e.g. `https://your-project.vercel.app` (or custom domain later)
+- **Redirect URLs:** include:
+  - `https://your-project.vercel.app/**`
+  - `http://localhost:3000/**` for local
+  - custom domain `https://www.yourdomain.com/**` when you add one
 
 ---
 
@@ -109,8 +124,9 @@ In Supabase → **Authentication → URL configuration**:
 | `product_images` | Yes | **No** | Writes: authenticated + `is_admin()` |
 | `customers` | **No** | **No** | Own row / admin only (`authenticated`) |
 | `addresses` | **No** | **No** | Own / admin only |
-| `orders` | **No** | **No** | Own / admin only |
-| `order_items` | **No** | **No** | Own (via order) / admin only |
+| `orders` | **No** | **No** | Customers **SELECT** own only. Insert/update: admin RLS or **service role** (checkout/payments). Customers cannot update status/payment fields via PostgREST. |
+| `order_items` | **No** | **No** | Customers **SELECT** via own orders. Insert/update/delete: admin or **service role** only. |
+| `product_variants` | Active only (or admin) | **No** | Size/colour sellable stock. Writes: authenticated + `is_admin()` |
 | `admin_users` | **No** | **No** | Own select / admin manage |
 
 ### Storage (`product-images`)
@@ -132,20 +148,43 @@ Migration `20260721143000_harden_products_public_read.sql` replaces unrestricted
 
 so inactive products are not publicly listable via the anon key.
 
+Migration `20260722090000_harden_orders_rls.sql` removes customer insert/update on `orders` / insert on `order_items` so payment status and totals cannot be mutated via the anon/authenticated PostgREST client.
+
+Migration `20260722091000_product_variants_and_inventory.sql` adds `product_variants`, variant snapshots on `order_items`, and `reserve_order_inventory` / `release_order_inventory` RPCs (service role).
+
 ---
 
-## 7. Post-deploy smoke test
+## 7. Razorpay webhook (works without a purchased domain)
+
+1. Deploy to Vercel and note the production URL: `https://YOUR_PROJECT.vercel.app`
+2. In [Razorpay Dashboard](https://dashboard.razorpay.com) → **Settings → Webhooks** → create webhook.
+3. **URL:** `https://YOUR_PROJECT.vercel.app/api/payments/razorpay/webhook`
+4. **Events:** enable at least `payment.captured`
+5. Copy the **webhook secret** into `RAZORPAY_WEBHOOK_SECRET` on Vercel (and local `.env.local` if testing)
+6. Redeploy so the env var is available
+
+Until the webhook is configured, checkout still works via the browser verify route. Add the webhook before taking real customer traffic (covers closed tabs / dropped network after pay).
+
+When you switch to a custom domain, edit the webhook URL in Razorpay to match.
+
+The webhook and the client verify route share the same idempotent mark-paid path. Inventory is reserved at order create and released on payment failure.
+
+---
+
+## 8. Post-deploy smoke test
 
 1. `/` and `/products` load
-2. Product detail + Add to Cart
+2. Product detail + size/colour + Add to Cart
 3. Checkout → Razorpay (test mode) → order confirmation
-4. `/admin/login` → dashboard → products / orders
+4. `/admin/login` → dashboard → products (variants) / orders
 5. Confirm `/sitemap.xml` and `/robots.txt` resolve
-6. Confirm order confirmation email/WhatsApp stubs or live providers in server logs
+6. Confirm `/api/health` returns `{ "status": "ok" }`
+7. Confirm order confirmation email/WhatsApp stubs or live providers in server logs
+8. After webhook is set: Razorpay test capture marks order paid without relying only on client verify
 
 ---
 
-## 8. Common failures
+## 9. Common failures
 
 | Symptom | Likely cause |
 |---|---|
@@ -153,13 +192,16 @@ so inactive products are not publicly listable via the anon key.
 | Admin login “no admin access” | Missing `admin_users` row for that Auth user |
 | Image uploads fail | Storage migration not applied, or user is not in `admin_users` |
 | Payment verify 500 | Missing `RAZORPAY_KEY_SECRET` |
-| Wrong sitemap/OG URLs | Missing `NEXT_PUBLIC_SITE_URL` on Production |
+| Webhook 500 / invalid signature | Missing or wrong `RAZORPAY_WEBHOOK_SECRET` |
+| Insufficient stock / no variants | Phase 0 variants migration not applied, or product has no active variants |
+| Wrong sitemap/OG URLs | Missing `NEXT_PUBLIC_SITE_URL` on Production (falls back to `VERCEL_URL` if unset) |
 | Service role errors / empty admin data | `SUPABASE_SERVICE_ROLE_KEY` set to the **anon** key by mistake |
 
 ---
 
-## 9. Security reminders
+## 10. Security reminders
 
 - Rotate any keys that were ever committed or shared in chat.
-- Confirm in Vercel that `SUPABASE_SERVICE_ROLE_KEY`, `RAZORPAY_KEY_SECRET`, Resend, and Twilio vars are **not** `NEXT_PUBLIC_`.
-- Use Razorpay **live** keys only on Production; keep test keys for Preview/local.
+- Confirm in Vercel that `SUPABASE_SERVICE_ROLE_KEY`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, Resend, and Twilio vars are **not** `NEXT_PUBLIC_`.
+- Use Razorpay **live** keys only on Production; keep test keys for Preview/local until go-live.
+- Never commit `.env` / `.env.local`.

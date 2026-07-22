@@ -1,4 +1,4 @@
-// Database types matching supabase/migrations/20260721133000_initial_ecommerce_schema.sql
+// Database types matching supabase migrations (initial schema + Phase 0)
 
 export type OrderStatus =
   | "pending"
@@ -47,6 +47,7 @@ export interface Product {
   price: number;
   compare_at_price: number | null;
   category_id: string | null;
+  /** Sum of active variant stock (maintained by DB trigger). */
   stock_quantity: number;
   is_active: boolean;
   created_at: string;
@@ -75,6 +76,41 @@ export interface ProductUpdate {
   compare_at_price?: number | null;
   category_id?: string | null;
   stock_quantity?: number;
+  is_active?: boolean;
+}
+
+export interface ProductVariant {
+  id: string;
+  product_id: string;
+  size: string;
+  color: string;
+  sku: string;
+  stock_quantity: number;
+  price_override: number | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductVariantInsert {
+  id?: string;
+  product_id: string;
+  size: string;
+  color: string;
+  sku: string;
+  stock_quantity?: number;
+  price_override?: number | null;
+  is_active?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ProductVariantUpdate {
+  size?: string;
+  color?: string;
+  sku?: string;
+  stock_quantity?: number;
+  price_override?: number | null;
   is_active?: boolean;
 }
 
@@ -160,6 +196,7 @@ export interface Order {
   payment_provider: string | null;
   payment_reference: string | null;
   shipping_address: ShippingAddress;
+  inventory_reserved: boolean;
   created_at: string;
 }
 
@@ -174,6 +211,7 @@ export interface OrderInsert {
   payment_provider?: string | null;
   payment_reference?: string | null;
   shipping_address: ShippingAddress;
+  inventory_reserved?: boolean;
   created_at?: string;
 }
 
@@ -186,13 +224,18 @@ export interface OrderUpdate {
   payment_provider?: string | null;
   payment_reference?: string | null;
   shipping_address?: ShippingAddress;
+  inventory_reserved?: boolean;
 }
 
 export interface OrderItem {
   id: string;
   order_id: string;
   product_id: string | null;
+  variant_id: string | null;
   product_name_snapshot: string;
+  size_snapshot: string | null;
+  color_snapshot: string | null;
+  sku_snapshot: string | null;
   unit_price: number;
   quantity: number;
 }
@@ -201,14 +244,22 @@ export interface OrderItemInsert {
   id?: string;
   order_id: string;
   product_id?: string | null;
+  variant_id?: string | null;
   product_name_snapshot: string;
+  size_snapshot?: string | null;
+  color_snapshot?: string | null;
+  sku_snapshot?: string | null;
   unit_price: number;
   quantity: number;
 }
 
 export interface OrderItemUpdate {
   product_id?: string | null;
+  variant_id?: string | null;
   product_name_snapshot?: string;
+  size_snapshot?: string | null;
+  color_snapshot?: string | null;
+  sku_snapshot?: string | null;
   unit_price?: number;
   quantity?: number;
 }
@@ -242,6 +293,11 @@ export interface Database {
         Row: Product;
         Insert: ProductInsert;
         Update: ProductUpdate;
+      };
+      product_variants: {
+        Row: ProductVariant;
+        Insert: ProductVariantInsert;
+        Update: ProductVariantUpdate;
       };
       product_images: {
         Row: ProductImage;
@@ -277,7 +333,18 @@ export interface Database {
     Views: Record<string, never>;
     Functions: {
       is_admin: { Args: Record<string, never>; Returns: boolean };
-      current_customer_id: { Args: Record<string, never>; Returns: string | null };
+      current_customer_id: {
+        Args: Record<string, never>;
+        Returns: string | null;
+      };
+      reserve_order_inventory: {
+        Args: { p_order_id: string };
+        Returns: boolean;
+      };
+      release_order_inventory: {
+        Args: { p_order_id: string };
+        Returns: boolean;
+      };
     };
     Enums: Record<string, never>;
   };

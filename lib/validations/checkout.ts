@@ -3,6 +3,7 @@ import { checkoutAddressSchema } from "@/lib/validations/address";
 
 export const checkoutItemSchema = z.object({
   productId: z.string().uuid("Invalid product id"),
+  variantId: z.string().uuid("Invalid variant id"),
   quantity: z.coerce.number().int().min(1).max(20),
 });
 

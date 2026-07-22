@@ -4,11 +4,8 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
-import { useCartStore } from "@/lib/store/cart";
-import {
-  customerCheckoutFormSchema,
-  guestCheckoutFormSchema,
-} from "@/lib/validations/checkout";
+import { useCartHasHydrated, useCartStore } from "@/lib/store/cart";
+import { customerCheckoutFormSchema } from "@/lib/validations/checkout";
 import { formatPrice } from "@/lib/utils/format-price";
 import type { Address } from "@/types";
 
@@ -35,26 +32,22 @@ interface CheckoutSubmitValues {
 }
 
 export function CheckoutForm({
-  isLoggedIn,
   savedAddresses,
   defaultEmail,
   defaultPhone,
   defaultFullName,
 }: CheckoutFormProps) {
   const router = useRouter();
+  const hasHydrated = useCartHasHydrated();
   const items = useCartStore((s) => s.items);
   const subtotal = useCartStore((s) => s.subtotal());
   const [error, setError] = useState<string | null>(null);
+  const cartItems = hasHydrated ? items : [];
 
-  const resolver = useMemo(
-    () =>
-      zodResolver(
-        isLoggedIn ? customerCheckoutFormSchema : guestCheckoutFormSchema
-      ),
-    [isLoggedIn]
-  );
+  const resolver = useMemo(() => zodResolver(customerCheckoutFormSchema), []);
 
-  const defaultAddress = savedAddresses.find((a) => a.is_default) ?? savedAddresses[0];
+  const defaultAddress =
+    savedAddresses.find((a) => a.is_default) ?? savedAddresses[0];
 
   const form = useForm({
     resolver,
@@ -62,7 +55,7 @@ export function CheckoutForm({
       fullName: defaultFullName ?? "",
       email: defaultEmail ?? "",
       phone: defaultPhone ?? "",
-      saveAddress: isLoggedIn,
+      saveAddress: true,
       address: {
         line1: defaultAddress?.line1 ?? "",
         line2: defaultAddress?.line2 ?? "",
@@ -91,7 +84,7 @@ export function CheckoutForm({
 
   async function onSubmit(rawValues: unknown) {
     const values = rawValues as CheckoutSubmitValues;
-    if (items.length === 0) {
+    if (cartItems.length === 0) {
       setError("Your cart is empty.");
       return;
     }
@@ -99,9 +92,9 @@ export function CheckoutForm({
     setError(null);
 
     const payload = {
-      isGuest: !isLoggedIn,
+      isGuest: false,
       fullName: values.fullName ?? null,
-      email: values.email ?? null,
+      email: defaultEmail ?? values.email ?? null,
       phone: values.phone ?? null,
       address: {
         line1: values.address.line1,
@@ -111,8 +104,9 @@ export function CheckoutForm({
         pincode: values.address.pincode,
       },
       saveAddress: values.saveAddress ?? false,
-      items: items.map((item) => ({
+      items: cartItems.map((item) => ({
         productId: item.productId,
+        variantId: item.variantId,
         quantity: item.quantity,
       })),
     };
@@ -135,7 +129,7 @@ export function CheckoutForm({
     router.push(result.redirectTo);
   }
 
-  if (items.length === 0) {
+  if (!hasHydrated || cartItems.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-neutral-300 bg-neutral-50 p-8 text-center text-sm text-neutral-600">
         Your cart is empty. Add a few tees before checkout.
@@ -144,42 +138,27 @@ export function CheckoutForm({
   }
 
   return (
-    <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-8 lg:grid-cols-[1fr_360px]">
+    <form
+      onSubmit={form.handleSubmit(onSubmit)}
+      className="grid gap-8 lg:grid-cols-[1fr_360px]"
+    >
       <div className="space-y-8">
-        {!isLoggedIn && (
-          <section className="rounded-2xl border border-neutral-200 bg-white p-5 sm:p-6">
-            <h2 className="text-lg font-semibold text-neutral-950">Contact details</h2>
-            <p className="mt-1 text-sm text-neutral-600">
-              Continue as guest. We need your email and phone for order updates.
-            </p>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="text-sm font-medium text-neutral-700">Email</label>
-                <input
-                  type="email"
-                  {...form.register("email")}
-                  className="mt-1.5 w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm outline-none ring-lime-400 focus:border-lime-400 focus:ring-2"
-                />
-                <p className="mt-1 text-xs text-red-600">{form.formState.errors.email?.message}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-neutral-700">Phone</label>
-                <input
-                  type="tel"
-                  {...form.register("phone")}
-                  className="mt-1.5 w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm outline-none ring-lime-400 focus:border-lime-400 focus:ring-2"
-                />
-                <p className="mt-1 text-xs text-red-600">{form.formState.errors.phone?.message}</p>
-              </div>
-            </div>
-          </section>
-        )}
-
         <section className="rounded-2xl border border-neutral-200 bg-white p-5 sm:p-6">
-          <h2 className="text-lg font-semibold text-neutral-950">Shipping address</h2>
-          {isLoggedIn && savedAddresses.length > 0 && (
+          <h2 className="text-lg font-semibold text-neutral-950">
+            Shipping address
+          </h2>
+          {defaultEmail && (
+            <p className="mt-2 text-sm text-neutral-600">
+              Signed in as{" "}
+              <span className="font-medium text-neutral-950">{defaultEmail}</span>
+            </p>
+          )}
+
+          {savedAddresses.length > 0 && (
             <div className="mt-4">
-              <label className="text-sm font-medium text-neutral-700">Use saved address</label>
+              <label className="text-sm font-medium text-neutral-700">
+                Use saved address
+              </label>
               <select
                 className="mt-1.5 w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm outline-none ring-lime-400 focus:border-lime-400 focus:ring-2"
                 defaultValue=""
@@ -188,7 +167,8 @@ export function CheckoutForm({
                 <option value="">Select saved address</option>
                 {savedAddresses.map((address) => (
                   <option key={address.id} value={address.id}>
-                    {address.line1}, {address.city}, {address.state} {address.pincode}
+                    {address.line1}, {address.city}, {address.state}{" "}
+                    {address.pincode}
                   </option>
                 ))}
               </select>
@@ -197,15 +177,34 @@ export function CheckoutForm({
 
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
-              <label className="text-sm font-medium text-neutral-700">Full name</label>
+              <label className="text-sm font-medium text-neutral-700">
+                Full name
+              </label>
               <input
                 {...form.register("fullName")}
                 className="mt-1.5 w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm outline-none ring-lime-400 focus:border-lime-400 focus:ring-2"
               />
-              <p className="mt-1 text-xs text-red-600">{form.formState.errors.fullName?.message}</p>
+              <p className="mt-1 text-xs text-red-600">
+                {form.formState.errors.fullName?.message}
+              </p>
             </div>
             <div className="sm:col-span-2">
-              <label className="text-sm font-medium text-neutral-700">Address line 1</label>
+              <label className="text-sm font-medium text-neutral-700">
+                Phone
+              </label>
+              <input
+                type="tel"
+                {...form.register("phone")}
+                className="mt-1.5 w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm outline-none ring-lime-400 focus:border-lime-400 focus:ring-2"
+              />
+              <p className="mt-1 text-xs text-red-600">
+                {form.formState.errors.phone?.message}
+              </p>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="text-sm font-medium text-neutral-700">
+                Address line 1
+              </label>
               <input
                 {...form.register("address.line1")}
                 className="mt-1.5 w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm outline-none ring-lime-400 focus:border-lime-400 focus:ring-2"
@@ -215,30 +214,42 @@ export function CheckoutForm({
               </p>
             </div>
             <div className="sm:col-span-2">
-              <label className="text-sm font-medium text-neutral-700">Address line 2 (optional)</label>
+              <label className="text-sm font-medium text-neutral-700">
+                Address line 2 (optional)
+              </label>
               <input
                 {...form.register("address.line2")}
                 className="mt-1.5 w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm outline-none ring-lime-400 focus:border-lime-400 focus:ring-2"
               />
             </div>
             <div>
-              <label className="text-sm font-medium text-neutral-700">City</label>
+              <label className="text-sm font-medium text-neutral-700">
+                City
+              </label>
               <input
                 {...form.register("address.city")}
                 className="mt-1.5 w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm outline-none ring-lime-400 focus:border-lime-400 focus:ring-2"
               />
-              <p className="mt-1 text-xs text-red-600">{form.formState.errors.address?.city?.message}</p>
+              <p className="mt-1 text-xs text-red-600">
+                {form.formState.errors.address?.city?.message}
+              </p>
             </div>
             <div>
-              <label className="text-sm font-medium text-neutral-700">State</label>
+              <label className="text-sm font-medium text-neutral-700">
+                State
+              </label>
               <input
                 {...form.register("address.state")}
                 className="mt-1.5 w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm outline-none ring-lime-400 focus:border-lime-400 focus:ring-2"
               />
-              <p className="mt-1 text-xs text-red-600">{form.formState.errors.address?.state?.message}</p>
+              <p className="mt-1 text-xs text-red-600">
+                {form.formState.errors.address?.state?.message}
+              </p>
             </div>
             <div>
-              <label className="text-sm font-medium text-neutral-700">Pincode</label>
+              <label className="text-sm font-medium text-neutral-700">
+                Pincode
+              </label>
               <input
                 {...form.register("address.pincode")}
                 className="mt-1.5 w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm outline-none ring-lime-400 focus:border-lime-400 focus:ring-2"
@@ -249,22 +260,29 @@ export function CheckoutForm({
             </div>
           </div>
 
-          {isLoggedIn && (
-            <label className="mt-4 flex items-center gap-2 text-sm text-neutral-700">
-              <input type="checkbox" {...form.register("saveAddress")} className="rounded" />
-              Save this address for next time
-            </label>
-          )}
+          <label className="mt-4 flex items-center gap-2 text-sm text-neutral-700">
+            <input
+              type="checkbox"
+              {...form.register("saveAddress")}
+              className="rounded"
+            />
+            Save this address for next time
+          </label>
         </section>
       </div>
 
       <aside className="h-fit rounded-2xl border border-neutral-200 bg-neutral-50 p-6">
-        <h2 className="mb-4 text-lg font-semibold text-neutral-950">Order summary</h2>
+        <h2 className="mb-4 text-lg font-semibold text-neutral-950">
+          Order summary
+        </h2>
         <ul className="space-y-2 text-sm text-neutral-700">
-          {items.map((item) => (
-            <li key={item.productId} className="flex items-center justify-between gap-4">
-              <span className="line-clamp-1">
-                {item.name} x {item.quantity}
+          {cartItems.map((item) => (
+            <li
+              key={item.variantId}
+              className="flex items-center justify-between gap-4"
+            >
+              <span className="line-clamp-2">
+                {item.name} ({item.size}/{item.color}) × {item.quantity}
               </span>
               <span className="font-medium text-neutral-950">
                 {formatPrice(item.unitPrice * item.quantity)}
@@ -276,7 +294,9 @@ export function CheckoutForm({
         <div className="space-y-2 text-sm">
           <div className="flex items-center justify-between">
             <span className="text-neutral-600">Subtotal</span>
-            <span className="font-medium text-neutral-950">{formatPrice(subtotal)}</span>
+            <span className="font-medium text-neutral-950">
+              {formatPrice(subtotal)}
+            </span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-neutral-600">Shipping</span>
@@ -295,7 +315,9 @@ export function CheckoutForm({
           disabled={form.formState.isSubmitting}
           className="mt-5 inline-flex w-full items-center justify-center rounded-full bg-neutral-950 px-6 py-3 text-sm font-semibold text-white transition hover:bg-lime-400 hover:text-neutral-950 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {form.formState.isSubmitting ? "Creating order..." : "Continue to payment"}
+          {form.formState.isSubmitting
+            ? "Creating order..."
+            : "Continue to payment"}
         </button>
       </aside>
     </form>
