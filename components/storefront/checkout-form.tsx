@@ -4,10 +4,19 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
+import {
+  computeOrderTotals,
+  type ShippingZoneLike,
+} from "@/lib/checkout/order-totals";
 import { useCartHasHydrated, useCartStore } from "@/lib/store/cart";
 import { customerCheckoutFormSchema } from "@/lib/validations/checkout";
 import { formatPrice } from "@/lib/utils/format-price";
 import type { Address } from "@/types";
+
+export interface CheckoutCommerceProps {
+  taxRate: number;
+  zones: ShippingZoneLike[];
+}
 
 interface CheckoutFormProps {
   isLoggedIn: boolean;
@@ -15,6 +24,7 @@ interface CheckoutFormProps {
   defaultEmail?: string | null;
   defaultPhone?: string | null;
   defaultFullName?: string | null;
+  commerce: CheckoutCommerceProps;
 }
 
 interface CheckoutSubmitValues {
@@ -36,6 +46,7 @@ export function CheckoutForm({
   defaultEmail,
   defaultPhone,
   defaultFullName,
+  commerce,
 }: CheckoutFormProps) {
   const router = useRouter();
   const hasHydrated = useCartHasHydrated();
@@ -66,8 +77,24 @@ export function CheckoutForm({
     },
   });
 
-  const shippingFee = 0;
-  const total = subtotal + shippingFee;
+  const watchedState = form.watch("address.state");
+  const totals = useMemo(
+    () =>
+      computeOrderTotals({
+        subtotal,
+        taxRatePercent: commerce.taxRate,
+        zones: commerce.zones,
+        state: watchedState,
+      }),
+    [subtotal, commerce.taxRate, commerce.zones, watchedState]
+  );
+
+  const { shippingFee, taxAmount, total, zone } = totals;
+  const freeShippingApplied =
+    zone != null &&
+    zone.free_above != null &&
+    subtotal >= zone.free_above &&
+    shippingFee === 0;
 
   function applySavedAddress(addressId: string) {
     const selected = savedAddresses.find((address) => address.id === addressId);
@@ -299,9 +326,25 @@ export function CheckoutForm({
             </span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-neutral-600">Shipping</span>
+            <span className="text-neutral-600">
+              Shipping
+              {zone ? (
+                <span className="mt-0.5 block text-xs font-normal text-neutral-500">
+                  {zone.name}
+                  {freeShippingApplied ? " · free shipping" : ""}
+                </span>
+              ) : null}
+            </span>
             <span className="text-neutral-950">{formatPrice(shippingFee)}</span>
           </div>
+          {commerce.taxRate > 0 ? (
+            <div className="flex items-center justify-between">
+              <span className="text-neutral-600">
+                Tax ({commerce.taxRate}%)
+              </span>
+              <span className="text-neutral-950">{formatPrice(taxAmount)}</span>
+            </div>
+          ) : null}
         </div>
         <div className="mt-4 flex items-center justify-between text-base font-semibold">
           <span>Total</span>

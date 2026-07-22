@@ -1,4 +1,10 @@
 import { createServerClient } from "@/lib/supabase/server";
+import {
+  ADMIN_LOW_STOCK_THRESHOLD,
+  ADMIN_PRODUCTS_PAGE_SIZE,
+  type AdminProductListOptions,
+  type AdminProductSort,
+} from "@/lib/admin/products";
 import type { Category, Product, ProductImage, ProductVariant } from "@/types";
 
 export type AdminProductImage = ProductImage;
@@ -10,6 +16,14 @@ export interface AdminProductListItem extends Product {
     ProductVariant,
     "id" | "stock_quantity" | "is_active"
   >[];
+}
+
+export interface AdminProductListResult {
+  products: AdminProductListItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 }
 
 export interface AdminProductDetail extends Product {
@@ -136,19 +150,140 @@ async function replaceProductVariants(
   }
 }
 
-export async function getAdminProducts(): Promise<AdminProductListItem[]> {
+function sanitizeSearch(value: string | undefined): string {
+  return (value ?? "").trim().replace(/[%_,]/g, "").slice(0, 80);
+}
+
+function resolveSort(sort: AdminProductSort | undefined): AdminProductSort {
+  if (
+    sort === "name" ||
+    sort === "price" ||
+    sort === "stock_quantity" ||
+    sort === "is_active" ||
+    sort === "created_at"
+  ) {
+    return sort;
+  }
+  return "created_at";
+}
+
+export async function getAdminProducts(
+  options: AdminProductListOptions = {}
+): Promise<AdminProductListResult> {
   const supabase = await assertAdmin();
 
-  const { data, error } = await supabase
+  const page = Math.max(1, options.page ?? 1);
+  const pageSize = Math.min(
+    100,
+    Math.max(1, options.pageSize ?? ADMIN_PRODUCTS_PAGE_SIZE)
+  );
+  const sort = resolveSort(options.sort);
+  const ascending = (options.sortDir ?? "desc") === "asc";
+  const search = sanitizeSearch(options.q);
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  let query = supabase
     .from("products")
     .select(
-      "*, categories(id, name, slug), product_images(id, url, position), product_variants(id, stock_quantity, is_active)"
-    )
-    .order("created_at", { ascending: false });
+      "*, categories(id, name, slug), product_images(id, url, position), product_variants(id, stock_quantity, is_active)",
+      { count: "exact" }
+    );
+
+  if (search) {
+    query = query.or(`name.ilike.%${search}%,slug.ilike.%${search}%`);
+  }
+
+  if (options.categoryId) {
+    query = query.eq("category_id", options.categoryId);
+  }
+
+  if (options.status === "active") {
+    query = query.eq("is_active", true);
+  } else if (options.status === "inactive") {
+    query = query.eq("is_active", false);
+  }
+
+  if (options.stock === "out") {
+    query = query.eq("stock_quantity", 0);
+  } else if (options.stock === "low") {
+    query = query
+      .gt("stock_quantity", 0)
+      .lt("stock_quantity", ADMIN_LOW_STOCK_THRESHOLD);
+  } else if (options.stock === "in_stock") {
+    query = query.gte("stock_quantity", ADMIN_LOW_STOCK_THRESHOLD);
+  }
+
+  const { data, error, count } = await query
+    .order(sort, { ascending })
+    .order("id", { ascending: true })
+    .range(from, to);
 
   if (error) {
     console.error("Failed to fetch admin products:", error.message);
     throw new Error("Failed to load products.");
+  }
+
+  const total = count ?? 0;
+
+  return {
+    products: (data ?? []) as AdminProductListItem[],
+    total,
+    page,
+    pageSize,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+  };
+}
+
+const ADMIN_PRODUCTS_EXPORT_LIMIT = 5000;
+
+/** Filtered product rows for CSV export (not paginated; hard cap for safety). */
+export async function getAdminProductsForExport(
+  options: Omit<AdminProductListOptions, "page" | "pageSize"> = {}
+): Promise<AdminProductListItem[]> {
+  const supabase = await assertAdmin();
+  const sort = resolveSort(options.sort);
+  const ascending = (options.sortDir ?? "desc") === "asc";
+  const search = sanitizeSearch(options.q);
+
+  let query = supabase
+    .from("products")
+    .select(
+      "*, categories(id, name, slug), product_images(id, url, position), product_variants(id, stock_quantity, is_active)"
+    );
+
+  if (search) {
+    query = query.or(`name.ilike.%${search}%,slug.ilike.%${search}%`);
+  }
+
+  if (options.categoryId) {
+    query = query.eq("category_id", options.categoryId);
+  }
+
+  if (options.status === "active") {
+    query = query.eq("is_active", true);
+  } else if (options.status === "inactive") {
+    query = query.eq("is_active", false);
+  }
+
+  if (options.stock === "out") {
+    query = query.eq("stock_quantity", 0);
+  } else if (options.stock === "low") {
+    query = query
+      .gt("stock_quantity", 0)
+      .lt("stock_quantity", ADMIN_LOW_STOCK_THRESHOLD);
+  } else if (options.stock === "in_stock") {
+    query = query.gte("stock_quantity", ADMIN_LOW_STOCK_THRESHOLD);
+  }
+
+  const { data, error } = await query
+    .order(sort, { ascending })
+    .order("id", { ascending: true })
+    .limit(ADMIN_PRODUCTS_EXPORT_LIMIT);
+
+  if (error) {
+    console.error("Failed to export admin products:", error.message);
+    throw new Error("Failed to export products.");
   }
 
   return (data ?? []) as AdminProductListItem[];
@@ -333,23 +468,63 @@ export async function toggleAdminProductActive(
 }
 
 export async function deleteAdminProduct(id: string): Promise<string[]> {
+  return deleteAdminProducts([id]);
+}
+
+export async function setAdminProductsActive(
+  ids: string[],
+  isActive: boolean
+): Promise<number> {
+  const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
+  if (uniqueIds.length === 0) {
+    return 0;
+  }
+
+  const supabase = await assertAdmin();
+
+  const { data, error } = await supabase
+    .from("products")
+    .update({
+      is_active: isActive,
+      updated_at: new Date().toISOString(),
+    })
+    .in("id", uniqueIds)
+    .select("id");
+
+  if (error) {
+    console.error("Failed to bulk update product status:", error.message);
+    throw new Error("Failed to update products.");
+  }
+
+  return data?.length ?? 0;
+}
+
+export async function deleteAdminProducts(ids: string[]): Promise<string[]> {
+  const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
+  if (uniqueIds.length === 0) {
+    return [];
+  }
+
   const supabase = await assertAdmin();
 
   const { data: images, error: imagesError } = await supabase
     .from("product_images")
     .select("url")
-    .eq("product_id", id);
+    .in("product_id", uniqueIds);
 
   if (imagesError) {
-    console.error("Failed to load product images for delete:", imagesError.message);
-    throw new Error("Failed to delete product.");
+    console.error(
+      "Failed to load product images for delete:",
+      imagesError.message
+    );
+    throw new Error("Failed to delete products.");
   }
 
-  const { error } = await supabase.from("products").delete().eq("id", id);
+  const { error } = await supabase.from("products").delete().in("id", uniqueIds);
 
   if (error) {
-    console.error("Failed to delete product:", error.message);
-    throw new Error("Failed to delete product.");
+    console.error("Failed to delete products:", error.message);
+    throw new Error("Failed to delete products.");
   }
 
   return ((images ?? []) as Array<{ url: string }>).map((row) => row.url);

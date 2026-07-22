@@ -1,25 +1,39 @@
 import Razorpay from "razorpay";
+import { resolveRazorpayCredentials } from "@/lib/integrations/resolve";
 
-export function getRazorpayClient() {
-  const keyId = process.env.RAZORPAY_KEY_ID;
-  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+export async function getRazorpayClient() {
+  const credentials = await resolveRazorpayCredentials();
 
-  if (!keyId || !keySecret) {
+  if (!credentials) {
     throw new Error("Razorpay credentials are not configured.");
   }
 
   return new Razorpay({
-    key_id: keyId,
-    key_secret: keySecret,
+    key_id: credentials.keyId,
+    key_secret: credentials.keySecret,
   });
 }
 
-export function getRazorpayKeyId(): string {
-  const keyId = process.env.RAZORPAY_KEY_ID;
-  if (!keyId) {
+export async function getRazorpayKeyId(): Promise<string> {
+  const credentials = await resolveRazorpayCredentials();
+  if (!credentials?.keyId) {
     throw new Error("RAZORPAY_KEY_ID is not configured.");
   }
-  return keyId;
+  return credentials.keyId;
+}
+
+export async function getRazorpayKeySecret(): Promise<string> {
+  const credentials = await resolveRazorpayCredentials();
+  if (!credentials?.keySecret) {
+    throw new Error("Razorpay key secret is not configured.");
+  }
+  return credentials.keySecret;
+}
+
+export async function getRazorpayWebhookSecret(): Promise<string | null> {
+  const credentials = await resolveRazorpayCredentials();
+  const secret = credentials?.webhookSecret?.trim();
+  return secret ? secret : null;
 }
 
 export function rupeesToPaise(amount: number): number {

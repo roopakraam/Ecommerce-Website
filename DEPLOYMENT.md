@@ -14,9 +14,18 @@ This project is a **Next.js 14 App Router** app. Vercel detects Next.js automati
   - `supabase/migrations/20260721143000_harden_products_public_read.sql`
   - `supabase/migrations/20260722090000_harden_orders_rls.sql`
   - `supabase/migrations/20260722091000_product_variants_and_inventory.sql`
+  - `supabase/migrations/20260722093000_admin_dashboard_metrics.sql` (optional — dashboard uses direct queries; RPCs are for SQL-side aggregation later)
+  - `supabase/migrations/20260722094000_order_notes_and_audit_logs.sql` (required for admin order notes + audit history)
+  - `supabase/migrations/20260722095000_customer_admin_notes.sql` (required for admin customer notes)
+  - `supabase/migrations/20260722096000_inventory_adjustments_and_coupons.sql` (required for inventory adjustments + coupons)
+  - `supabase/migrations/20260722097000_product_reviews.sql` (required for admin review moderation)
+  - `supabase/migrations/20260722098000_admin_analytics.sql` (optional — analytics uses RPC when available, otherwise direct queries)
+  - `supabase/migrations/20260722099000_store_settings.sql` (required for admin store/shipping/notification settings + admin display name)
+  - `supabase/migrations/20260722100000_integration_credentials.sql` (required for Admin → Integrations encrypted credential storage)
 - [ ] Create at least one Auth user and insert a matching `admin_users` row (see below)
-- [ ] Confirm Razorpay keys (use **test** keys until go-live)
+- [ ] Confirm Razorpay keys (use **test** keys until go-live) — via env **or** Admin → Integrations
 - [ ] Set `NEXT_PUBLIC_SITE_URL` — use `https://YOUR_PROJECT.vercel.app` until a custom domain exists (no trailing slash)
+- [ ] Set `INTEGRATIONS_ENCRYPTION_KEY` if you will save provider secrets in the Integrations UI (`openssl rand -base64 32`)
 
 ---
 
@@ -63,9 +72,11 @@ Add each variable below. Prefer scoping secrets to **Production** only; use Prev
 | `TWILIO_ACCOUNT_SID` | Optional | **No** | Twilio Console → Account SID |
 | `TWILIO_AUTH_TOKEN` | Optional | **No** | Twilio Auth Token |
 | `TWILIO_WHATSAPP_FROM` | Optional† | No | e.g. `whatsapp:+14155238886` (sandbox) or your approved WhatsApp sender |
+| `INTEGRATIONS_ENCRYPTION_KEY` | Recommended‡ | **No** | 32-byte key, base64 (`openssl rand -base64 32`). Encrypts secrets saved in Admin → Integrations. Env provider vars remain a fallback when DB credentials are absent. |
 
 \* `RAZORPAY_KEY_ID` is not a `NEXT_PUBLIC_` var; the client receives it from `/api/payments/razorpay/create-order`.  
-† Required together with their API credentials if you want that channel live.
+† Required together with their API credentials if you want that channel live.  
+‡ Required in production once you paste secrets in the Integrations UI. You can keep using env-only credentials without this key.
 
 ### How to set them in Vercel
 
@@ -160,8 +171,10 @@ Migration `20260722091000_product_variants_and_inventory.sql` adds `product_vari
 2. In [Razorpay Dashboard](https://dashboard.razorpay.com) → **Settings → Webhooks** → create webhook.
 3. **URL:** `https://YOUR_PROJECT.vercel.app/api/payments/razorpay/webhook`
 4. **Events:** enable at least `payment.captured`
-5. Copy the **webhook secret** into `RAZORPAY_WEBHOOK_SECRET` on Vercel (and local `.env.local` if testing)
-6. Redeploy so the env var is available
+5. Copy the **webhook secret** into `RAZORPAY_WEBHOOK_SECRET` on Vercel (and local `.env.local` if testing), **or** paste it under Admin → Integrations → Razorpay
+6. Redeploy so the env var is available (not needed if the secret is only stored via Integrations)
+
+You can also copy the webhook URL from **Admin → Integrations → Razorpay** (built from `NEXT_PUBLIC_SITE_URL`).
 
 Until the webhook is configured, checkout still works via the browser verify route. Add the webhook before taking real customer traffic (covers closed tabs / dropped network after pay).
 
@@ -202,6 +215,6 @@ The webhook and the client verify route share the same idempotent mark-paid path
 ## 10. Security reminders
 
 - Rotate any keys that were ever committed or shared in chat.
-- Confirm in Vercel that `SUPABASE_SERVICE_ROLE_KEY`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, Resend, and Twilio vars are **not** `NEXT_PUBLIC_`.
+- Confirm in Vercel that `SUPABASE_SERVICE_ROLE_KEY`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `INTEGRATIONS_ENCRYPTION_KEY`, Resend, and Twilio vars are **not** `NEXT_PUBLIC_`.
 - Use Razorpay **live** keys only on Production; keep test keys for Preview/local until go-live.
 - Never commit `.env` / `.env.local`.

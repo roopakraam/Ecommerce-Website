@@ -1,7 +1,9 @@
 import Link from "next/link";
 import type { AdminOrderListItem } from "@/lib/db/admin-orders";
+import { ADMIN_ORDERS_PATH } from "@/lib/admin/orders";
 import { formatPrice } from "@/lib/utils/format-price";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Button } from "@/components/ui/button";
 import type { OrderStatus, PaymentStatus } from "@/types";
 
 interface OrdersTableProps {
@@ -43,9 +45,9 @@ export function OrdersTable({
       return (
         <EmptyState
           tone="dark"
-          title="No orders match your search"
-          description="Try a different status filter or search by another customer name or phone number."
-          actionHref="/admin/dashboard/orders"
+          title="No orders match your filters"
+          description="Try a different status or date range, or clear filters."
+          actionHref={ADMIN_ORDERS_PATH}
           actionLabel="Clear filters"
         />
       );
@@ -63,38 +65,38 @@ export function OrdersTable({
   }
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-neutral-800">
-      <table className="min-w-full divide-y divide-neutral-800 text-left text-sm">
-        <thead className="bg-neutral-900 text-xs uppercase tracking-wide text-neutral-400">
+    <div className="overflow-x-auto rounded-xl border border-border">
+      <table className="min-w-full divide-y divide-border text-left text-sm">
+        <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
           <tr>
             <th className="px-4 py-3 font-semibold">Order</th>
             <th className="px-4 py-3 font-semibold">Customer</th>
             <th className="px-4 py-3 font-semibold">Total</th>
             <th className="px-4 py-3 font-semibold">Payment</th>
             <th className="px-4 py-3 font-semibold">Status</th>
-            <th className="px-4 py-3 font-semibold text-right">Actions</th>
+            <th className="px-4 py-3 text-right font-semibold">Actions</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-neutral-800 bg-neutral-950">
+        <tbody className="divide-y divide-border bg-background">
           {orders.map((order) => (
-            <tr key={order.id}>
+            <tr key={order.id} className="hover:bg-muted/20">
               <td className="px-4 py-3">
-                <p className="font-mono text-xs text-neutral-300">
+                <p className="font-mono text-xs text-foreground">
                   {order.id.slice(0, 8)}…
                 </p>
-                <p className="mt-1 text-xs text-neutral-500">
+                <p className="mt-1 text-xs text-muted-foreground">
                   {formatDate(order.created_at)}
                 </p>
               </td>
               <td className="px-4 py-3">
-                <p className="font-medium text-white">
+                <p className="font-medium text-foreground">
                   {order.customers?.full_name || "Guest"}
                 </p>
-                <p className="text-xs text-neutral-500">
+                <p className="text-xs text-muted-foreground">
                   {order.customers?.phone || "—"}
                 </p>
               </td>
-              <td className="px-4 py-3 text-neutral-200">
+              <td className="px-4 py-3 text-foreground">
                 {formatPrice(Number(order.total))}
               </td>
               <td className="px-4 py-3">
@@ -112,12 +114,9 @@ export function OrdersTable({
                 </span>
               </td>
               <td className="px-4 py-3 text-right">
-                <Link
-                  href={`/admin/dashboard/orders/${order.id}`}
-                  className="inline-flex rounded-full border border-neutral-700 px-3 py-1.5 text-xs font-semibold text-neutral-200 transition hover:border-lime-400 hover:text-lime-300"
-                >
-                  View
-                </Link>
+                <Button variant="outline" size="sm" asChild>
+                  <Link href={`${ADMIN_ORDERS_PATH}/${order.id}`}>View</Link>
+                </Button>
               </td>
             </tr>
           ))}

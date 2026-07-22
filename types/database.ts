@@ -138,6 +138,7 @@ export interface Customer {
   auth_user_id: string;
   full_name: string | null;
   phone: string | null;
+  admin_notes: string;
   created_at: string;
 }
 
@@ -146,12 +147,14 @@ export interface CustomerInsert {
   auth_user_id: string;
   full_name?: string | null;
   phone?: string | null;
+  admin_notes?: string;
   created_at?: string;
 }
 
 export interface CustomerUpdate {
   full_name?: string | null;
   phone?: string | null;
+  admin_notes?: string;
 }
 
 export interface Address {
@@ -197,6 +200,7 @@ export interface Order {
   payment_reference: string | null;
   shipping_address: ShippingAddress;
   inventory_reserved: boolean;
+  internal_notes: string;
   created_at: string;
 }
 
@@ -212,6 +216,7 @@ export interface OrderInsert {
   payment_reference?: string | null;
   shipping_address: ShippingAddress;
   inventory_reserved?: boolean;
+  internal_notes?: string;
   created_at?: string;
 }
 
@@ -225,6 +230,7 @@ export interface OrderUpdate {
   payment_reference?: string | null;
   shipping_address?: ShippingAddress;
   inventory_reserved?: boolean;
+  internal_notes?: string;
 }
 
 export interface OrderItem {
@@ -268,16 +274,225 @@ export interface AdminUser {
   id: string;
   auth_user_id: string;
   role: AdminRole;
+  display_name: string | null;
 }
 
 export interface AdminUserInsert {
   id?: string;
   auth_user_id: string;
   role?: AdminRole;
+  display_name?: string | null;
 }
 
 export interface AdminUserUpdate {
   role?: AdminRole;
+  display_name?: string | null;
+}
+
+export type StoreCurrency = "INR" | "USD";
+
+export interface StoreSettings {
+  id: number;
+  store_name: string;
+  currency: StoreCurrency;
+  tax_rate: number;
+  support_email: string | null;
+  support_phone: string | null;
+  notify_email_customer: boolean;
+  notify_whatsapp_customer: boolean;
+  notify_email_admin: boolean;
+  notify_whatsapp_admin: boolean;
+  notify_low_stock: boolean;
+  admin_notify_email: string | null;
+  admin_notify_phone: string | null;
+  updated_at: string;
+}
+
+export interface StoreSettingsUpdate {
+  store_name?: string;
+  currency?: StoreCurrency;
+  tax_rate?: number;
+  support_email?: string | null;
+  support_phone?: string | null;
+  notify_email_customer?: boolean;
+  notify_whatsapp_customer?: boolean;
+  notify_email_admin?: boolean;
+  notify_whatsapp_admin?: boolean;
+  notify_low_stock?: boolean;
+  admin_notify_email?: string | null;
+  admin_notify_phone?: string | null;
+}
+
+export interface ShippingZone {
+  id: string;
+  name: string;
+  states: string[];
+  flat_rate: number;
+  free_above: number | null;
+  estimated_days_min: number | null;
+  estimated_days_max: number | null;
+  is_active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ShippingZoneInsert {
+  id?: string;
+  name: string;
+  states?: string[];
+  flat_rate?: number;
+  free_above?: number | null;
+  estimated_days_min?: number | null;
+  estimated_days_max?: number | null;
+  is_active?: boolean;
+  sort_order?: number;
+}
+
+export interface ShippingZoneUpdate {
+  name?: string;
+  states?: string[];
+  flat_rate?: number;
+  free_above?: number | null;
+  estimated_days_min?: number | null;
+  estimated_days_max?: number | null;
+  is_active?: boolean;
+  sort_order?: number;
+}
+
+export interface AuditLog {
+  id: string;
+  entity_type: string;
+  entity_id: string;
+  action: string;
+  actor_auth_user_id: string | null;
+  previous_values: Record<string, unknown> | null;
+  new_values: Record<string, unknown> | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface AuditLogInsert {
+  id?: string;
+  entity_type: string;
+  entity_id: string;
+  action: string;
+  actor_auth_user_id?: string | null;
+  previous_values?: Record<string, unknown> | null;
+  new_values?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
+  created_at?: string;
+}
+
+export type CouponDiscountType = "percentage" | "fixed";
+
+export interface InventoryAdjustment {
+  id: string;
+  variant_id: string;
+  delta: number;
+  quantity_before: number;
+  quantity_after: number;
+  reason: string | null;
+  actor_auth_user_id: string | null;
+  created_at: string;
+}
+
+export interface InventoryAdjustmentInsert {
+  id?: string;
+  variant_id: string;
+  delta: number;
+  quantity_before: number;
+  quantity_after: number;
+  reason?: string | null;
+  actor_auth_user_id?: string | null;
+  created_at?: string;
+}
+
+export interface Coupon {
+  id: string;
+  code: string;
+  discount_type: CouponDiscountType;
+  discount_value: number;
+  starts_at: string | null;
+  ends_at: string | null;
+  usage_limit: number | null;
+  usage_count: number;
+  per_customer_limit: number | null;
+  min_order_amount: number | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CouponInsert {
+  id?: string;
+  code: string;
+  discount_type: CouponDiscountType;
+  discount_value: number;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  usage_limit?: number | null;
+  usage_count?: number;
+  per_customer_limit?: number | null;
+  min_order_amount?: number | null;
+  is_active?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CouponUpdate {
+  code?: string;
+  discount_type?: CouponDiscountType;
+  discount_value?: number;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  usage_limit?: number | null;
+  usage_count?: number;
+  per_customer_limit?: number | null;
+  min_order_amount?: number | null;
+  is_active?: boolean;
+}
+
+export type ReviewStatus = "pending" | "approved" | "rejected";
+
+export interface ProductReview {
+  id: string;
+  product_id: string;
+  customer_id: string | null;
+  rating: number;
+  title: string | null;
+  body: string;
+  status: ReviewStatus;
+  reviewer_name: string | null;
+  moderated_at: string | null;
+  moderated_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductReviewInsert {
+  id?: string;
+  product_id: string;
+  customer_id?: string | null;
+  rating: number;
+  title?: string | null;
+  body: string;
+  status?: ReviewStatus;
+  reviewer_name?: string | null;
+  moderated_at?: string | null;
+  moderated_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ProductReviewUpdate {
+  rating?: number;
+  title?: string | null;
+  body?: string;
+  status?: ReviewStatus;
+  reviewer_name?: string | null;
+  moderated_at?: string | null;
+  moderated_by?: string | null;
 }
 
 /** Supabase-style Database map for typed clients */
@@ -329,6 +544,41 @@ export interface Database {
         Insert: AdminUserInsert;
         Update: AdminUserUpdate;
       };
+      audit_logs: {
+        Row: AuditLog;
+        Insert: AuditLogInsert;
+        Update: Partial<AuditLogInsert>;
+      };
+      inventory_adjustments: {
+        Row: InventoryAdjustment;
+        Insert: InventoryAdjustmentInsert;
+        Update: Partial<InventoryAdjustmentInsert>;
+      };
+      coupons: {
+        Row: Coupon;
+        Insert: CouponInsert;
+        Update: CouponUpdate;
+      };
+      product_reviews: {
+        Row: ProductReview;
+        Insert: ProductReviewInsert;
+        Update: ProductReviewUpdate;
+      };
+      store_settings: {
+        Row: StoreSettings;
+        Insert: Partial<StoreSettings> & { id?: number };
+        Update: StoreSettingsUpdate;
+      };
+      shipping_zones: {
+        Row: ShippingZone;
+        Insert: ShippingZoneInsert;
+        Update: ShippingZoneUpdate;
+      };
+      integration_credentials: {
+        Row: import("./integrations").IntegrationCredentialRow;
+        Insert: import("./integrations").IntegrationCredentialInsert;
+        Update: import("./integrations").IntegrationCredentialUpdate;
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -344,6 +594,26 @@ export interface Database {
       release_order_inventory: {
         Args: { p_order_id: string };
         Returns: boolean;
+      };
+      adjust_variant_inventory: {
+        Args: {
+          p_variant_id: string;
+          p_delta: number;
+          p_reason?: string | null;
+        };
+        Returns: InventoryAdjustment;
+      };
+      admin_analytics_sales: {
+        Args: { p_days?: number };
+        Returns: unknown;
+      };
+      admin_analytics_inventory: {
+        Args: { p_days?: number };
+        Returns: unknown;
+      };
+      admin_analytics_customers: {
+        Args: { p_months?: number };
+        Returns: unknown;
       };
     };
     Enums: Record<string, never>;

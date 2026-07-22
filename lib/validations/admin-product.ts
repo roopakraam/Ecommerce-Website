@@ -26,7 +26,7 @@ export const adminProductVariantSchema = z.object({
 
 export const adminProductFormSchema = z
   .object({
-    name: z.string().trim().min(1, "Name is required").max(200),
+    name: z.string().trim().min(1, "Title is required").max(200),
     description: z.union([z.string().trim().max(5000), z.literal("")]),
     price: priceSchema,
     category_id: z.union([

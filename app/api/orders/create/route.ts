@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import { computeOrderTotals } from "@/lib/checkout/order-totals";
 import { ensureCustomerProfile } from "@/lib/db/customers";
 import { reserveOrderInventory } from "@/lib/db/orders";
+import { getPublicStoreCommerceSettings } from "@/lib/db/store-settings";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createServerClient } from "@/lib/supabase/server";
 import { checkoutRequestSchema } from "@/lib/validations/checkout";
@@ -144,8 +146,13 @@ export async function POST(request: Request) {
       });
     }
 
-    const shippingFee = 0;
-    const total = subtotal + shippingFee;
+    const commerce = await getPublicStoreCommerceSettings();
+    const { shippingFee, total } = computeOrderTotals({
+      subtotal,
+      taxRatePercent: commerce.taxRate,
+      zones: commerce.zones,
+      state: payload.address.state,
+    });
 
     const { data: order, error: orderError } = await admin
       .from("orders")

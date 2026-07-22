@@ -13,6 +13,7 @@ import {
   getOrderConfirmation,
   requireOrderOwnerOrAdmin,
 } from "@/lib/db/orders";
+import { taxFromOrderAmounts } from "@/lib/checkout/order-totals";
 import { formatPrice } from "@/lib/utils/format-price";
 import { ClearCartOnMount } from "@/components/storefront/clear-cart-on-mount";
 import { buildPageMetadata } from "@/lib/seo/site";
@@ -103,6 +104,11 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
     hour: "2-digit",
     minute: "2-digit",
   });
+  const taxAmount = taxFromOrderAmounts({
+    subtotal: Number(order.subtotal),
+    shippingFee: Number(order.shipping_fee),
+    total: Number(order.total),
+  });
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-10 sm:px-6 sm:py-14">
@@ -186,6 +192,14 @@ export default async function OrderConfirmationPage({ params }: PageProps) {
                 {formatPrice(order.shipping_fee)}
               </dd>
             </div>
+            {taxAmount > 0 ? (
+              <div className="flex justify-between">
+                <dt className="text-neutral-600">Tax</dt>
+                <dd className="font-medium text-neutral-950">
+                  {formatPrice(taxAmount)}
+                </dd>
+              </div>
+            ) : null}
             <div className="flex justify-between border-t border-neutral-200 pt-2 text-base">
               <dt className="font-semibold text-neutral-950">Total</dt>
               <dd className="font-bold text-neutral-950">

@@ -131,7 +131,7 @@ export function ProductForm({
         return;
       }
 
-      router.push("/admin/dashboard/products");
+      router.push("/admin/products");
       router.refresh();
     });
   }
@@ -147,7 +147,7 @@ export function ProductForm({
             htmlFor="name"
             className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-300"
           >
-            Name
+            Title
           </label>
           <input
             id="name"
@@ -429,7 +429,7 @@ export function ProductForm({
               : "Save changes"}
         </button>
         <Link
-          href="/admin/dashboard/products"
+          href="/admin/products"
           className="rounded-full border border-neutral-700 px-5 py-2.5 text-sm font-semibold text-neutral-200 transition hover:border-neutral-500"
         >
           Cancel

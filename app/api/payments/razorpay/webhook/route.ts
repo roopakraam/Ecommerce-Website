@@ -5,6 +5,7 @@ import {
   getOrderForPayment,
 } from "@/lib/db/orders";
 import { notifyOrderPaid } from "@/lib/notifications/order-confirmation";
+import { getRazorpayWebhookSecret } from "@/lib/razorpay/client";
 import { verifyRazorpayWebhookSignature } from "@/lib/razorpay/verify-signature";
 
 interface RazorpayPaymentEntity {
@@ -25,9 +26,9 @@ interface RazorpayWebhookPayload {
 
 export async function POST(request: Request) {
   try {
-    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    const secret = await getRazorpayWebhookSecret();
     if (!secret) {
-      console.error("RAZORPAY_WEBHOOK_SECRET is not configured.");
+      console.error("Razorpay webhook secret is not configured (DB or env).");
       return NextResponse.json(
         { error: "Webhook is not configured." },
         { status: 500 }

@@ -55,7 +55,7 @@ export async function POST(request: Request) {
     ) {
       const amountInPaise = rupeesToPaise(order.total);
       return NextResponse.json({
-        keyId: getRazorpayKeyId(),
+        keyId: await getRazorpayKeyId(),
         razorpayOrderId: order.payment_reference,
         amount: amountInPaise,
         currency: "INR",
@@ -63,7 +63,7 @@ export async function POST(request: Request) {
       });
     }
 
-    const razorpay = getRazorpayClient();
+    const razorpay = await getRazorpayClient();
     const amountInPaise = rupeesToPaise(order.total);
 
     const razorpayOrder = await razorpay.orders.create({
@@ -84,7 +84,7 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({
-      keyId: getRazorpayKeyId(),
+      keyId: await getRazorpayKeyId(),
       razorpayOrderId: razorpayOrder.id,
       amount: amountInPaise,
       currency: "INR",

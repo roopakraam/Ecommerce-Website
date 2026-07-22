@@ -1,6 +1,14 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+function isAdminLoginPath(pathname: string): boolean {
+  return pathname === "/admin/login" || pathname.startsWith("/admin/login/");
+}
+
+function isAdminProtectedPath(pathname: string): boolean {
+  return pathname.startsWith("/admin") && !isAdminLoginPath(pathname);
+}
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
@@ -38,11 +46,11 @@ export async function updateSession(request: NextRequest) {
   await supabase.auth.getClaims();
 
   const pathname = request.nextUrl.pathname;
-  const isAdminDashboardRoute = pathname.startsWith("/admin/dashboard");
+  const isAdminRoute = isAdminProtectedPath(pathname);
   const isCustomerProtectedRoute =
     pathname.startsWith("/cart") || pathname.startsWith("/checkout");
 
-  if (!isAdminDashboardRoute && !isCustomerProtectedRoute) {
+  if (!isAdminRoute && !isCustomerProtectedRoute) {
     return supabaseResponse;
   }
 
@@ -57,7 +65,7 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  if (!isAdminDashboardRoute) {
+  if (!isAdminRoute) {
     return supabaseResponse;
   }
 

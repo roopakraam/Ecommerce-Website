@@ -4,6 +4,7 @@ import {
   requireOrderOwnerOrAdmin,
 } from "@/lib/db/orders";
 import { notifyOrderPaid } from "@/lib/notifications/order-confirmation";
+import { getRazorpayKeySecret } from "@/lib/razorpay/client";
 import { verifyRazorpayPaymentSignature } from "@/lib/razorpay/verify-signature";
 import { verifyRazorpayPaymentSchema } from "@/lib/validations/payment";
 
@@ -36,8 +37,10 @@ export async function POST(request: Request) {
 
     const order = access.order!;
 
-    const secret = process.env.RAZORPAY_KEY_SECRET;
-    if (!secret) {
+    let secret: string;
+    try {
+      secret = await getRazorpayKeySecret();
+    } catch {
       return NextResponse.json(
         { error: "Payment verification is not configured." },
         { status: 500 }

@@ -1,4 +1,5 @@
 import twilio from "twilio";
+import { resolveTwilioWhatsAppCredentials } from "@/lib/integrations/resolve";
 import type {
   WhatsAppMessage,
   WhatsAppNotificationProvider,
@@ -68,17 +69,19 @@ export function toE164Phone(phone: string): string | null {
   return null;
 }
 
-export function createWhatsAppProvider(): WhatsAppNotificationProvider {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const from = process.env.TWILIO_WHATSAPP_FROM;
+export async function createWhatsAppProvider(): Promise<WhatsAppNotificationProvider> {
+  const credentials = await resolveTwilioWhatsAppCredentials();
 
-  if (!accountSid || !authToken || !from) {
+  if (!credentials) {
     console.warn(
-      "[notifications] Twilio WhatsApp env missing — using stub WhatsApp provider."
+      "[notifications] Twilio WhatsApp credentials missing (DB/env) — using stub WhatsApp provider."
     );
     return new StubWhatsAppProvider();
   }
 
-  return new TwilioWhatsAppProvider(accountSid, authToken, from);
+  return new TwilioWhatsAppProvider(
+    credentials.accountSid,
+    credentials.authToken,
+    credentials.whatsappFrom
+  );
 }

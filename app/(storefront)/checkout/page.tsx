@@ -1,5 +1,6 @@
 import { CheckoutForm } from "@/components/storefront/checkout-form";
 import { getCheckoutContext } from "@/lib/db/checkout";
+import { getPublicStoreCommerceSettings } from "@/lib/db/store-settings";
 import { buildPageMetadata } from "@/lib/seo/site";
 
 export const metadata = buildPageMetadata({
@@ -11,7 +12,10 @@ export const metadata = buildPageMetadata({
 });
 
 export default async function CheckoutPage() {
-  const checkoutContext = await getCheckoutContext();
+  const [checkoutContext, commerce] = await Promise.all([
+    getCheckoutContext(),
+    getPublicStoreCommerceSettings(),
+  ]);
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-14">
@@ -31,6 +35,17 @@ export default async function CheckoutPage() {
         defaultEmail={checkoutContext.user?.email}
         defaultPhone={checkoutContext.customer?.phone}
         defaultFullName={checkoutContext.customer?.full_name}
+        commerce={{
+          taxRate: commerce.taxRate,
+          zones: commerce.zones.map((zone) => ({
+            name: zone.name,
+            states: zone.states,
+            flat_rate: zone.flat_rate,
+            free_above: zone.free_above,
+            is_active: zone.is_active,
+            sort_order: zone.sort_order,
+          })),
+        }}
       />
     </main>
   );

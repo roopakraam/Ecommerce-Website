@@ -12,3 +12,10 @@ export const updateOrderStatusSchema = z.object({
 });
 
 export type UpdateOrderStatusInput = z.infer<typeof updateOrderStatusSchema>;
+
+export const updateOrderNotesSchema = z.object({
+  orderId: z.string().uuid("Invalid order id"),
+  internalNotes: z.string().max(5000, "Notes must be 5000 characters or fewer"),
+});
+
+export type UpdateOrderNotesInput = z.infer<typeof updateOrderNotesSchema>;

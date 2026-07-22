@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getStoreSettingsForRuntime } from "@/lib/db/store-settings";
 import { formatPrice } from "@/lib/utils/format-price";
 import { createEmailProvider } from "@/lib/notifications/providers/email";
 import {
@@ -123,6 +124,15 @@ export async function getOrderConfirmationPayload(
   };
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function buildEmailContent(payload: OrderConfirmationPayload): {
   subject: string;
   html: string;
@@ -184,30 +194,52 @@ function buildWhatsAppBody(payload: OrderConfirmationPayload): string {
   ].join("\n");
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+function buildAdminEmailContent(payload: OrderConfirmationPayload): {
+  subject: string;
+  html: string;
+  text: string;
+} {
+  const subject = `New paid order — ${payload.orderId.slice(0, 8)} (${formatPrice(payload.total)})`;
+  const text = [
+    "A new order was paid.",
+    `Order ID: ${payload.orderId}`,
+    `Customer: ${payload.customerName ?? "—"}`,
+    `Email: ${payload.email ?? "—"}`,
+    `Phone: ${payload.phone ?? "—"}`,
+    `Total: ${formatPrice(payload.total)}`,
+  ].join("\n");
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; color: #111; line-height: 1.5;">
+      <h1 style="font-size: 18px;">New paid order</h1>
+      <p><strong>Order ID:</strong> ${escapeHtml(payload.orderId)}<br/>
+      <strong>Customer:</strong> ${escapeHtml(payload.customerName ?? "—")}<br/>
+      <strong>Email:</strong> ${escapeHtml(payload.email ?? "—")}<br/>
+      <strong>Phone:</strong> ${escapeHtml(payload.phone ?? "—")}<br/>
+      <strong>Total:</strong> ${formatPrice(payload.total)}</p>
+    </div>
+  `.trim();
+
+  return { subject, html, text };
 }
 
 /**
- * Sends order confirmation via email (Resend) and WhatsApp (Twilio).
- * Provider implementations are injectable for tests / future swaps.
+ * Sends order confirmation via email (Resend) and WhatsApp (Twilio),
+ * respecting store_settings notification flags for customer + admin.
  */
 export async function sendOrderConfirmation(
   payload: OrderConfirmationPayload,
   deps: OrderConfirmationNotifierDeps = {}
 ): Promise<{ emailSent: boolean; whatsappSent: boolean }> {
-  const emailProvider = deps.emailProvider ?? createEmailProvider();
-  const whatsappProvider = deps.whatsappProvider ?? createWhatsAppProvider();
+  const settings = await getStoreSettingsForRuntime();
+  const emailProvider = deps.emailProvider ?? (await createEmailProvider());
+  const whatsappProvider =
+    deps.whatsappProvider ?? (await createWhatsAppProvider());
 
   let emailSent = false;
   let whatsappSent = false;
 
-  if (payload.email) {
+  if (settings.notify_email_customer && payload.email) {
     try {
       const content = buildEmailContent(payload);
       await emailProvider.send({
@@ -223,6 +255,10 @@ export async function sendOrderConfirmation(
         error
       );
     }
+  } else if (!settings.notify_email_customer) {
+    console.info(
+      `[notifications] Customer email disabled for order ${payload.orderId}.`
+    );
   } else {
     console.warn(
       `[notifications] No customer email for order ${payload.orderId}; skipping email.`
@@ -230,7 +266,7 @@ export async function sendOrderConfirmation(
   }
 
   const e164Phone = payload.phone ? toE164Phone(payload.phone) : null;
-  if (e164Phone) {
+  if (settings.notify_whatsapp_customer && e164Phone) {
     try {
       await whatsappProvider.send({
         to: e164Phone,
@@ -243,10 +279,54 @@ export async function sendOrderConfirmation(
         error
       );
     }
+  } else if (!settings.notify_whatsapp_customer) {
+    console.info(
+      `[notifications] Customer WhatsApp disabled for order ${payload.orderId}.`
+    );
   } else {
     console.warn(
       `[notifications] No usable customer phone for order ${payload.orderId}; skipping WhatsApp.`
     );
+  }
+
+  // Admin new-order alerts
+  if (settings.notify_email_admin && settings.admin_notify_email) {
+    try {
+      const content = buildAdminEmailContent(payload);
+      await emailProvider.send({
+        to: settings.admin_notify_email,
+        subject: content.subject,
+        html: content.html,
+        text: content.text,
+      });
+    } catch (error) {
+      console.error(
+        `[notifications:${emailProvider.name}] Failed to send admin new-order email:`,
+        error
+      );
+    }
+  }
+
+  if (settings.notify_whatsapp_admin && settings.admin_notify_phone) {
+    const adminPhone = toE164Phone(settings.admin_notify_phone);
+    if (adminPhone) {
+      try {
+        await whatsappProvider.send({
+          to: adminPhone,
+          body: [
+            "BOOK MY TEES — new paid order",
+            `Order: ${payload.orderId.slice(0, 8)}…`,
+            `Total: ${formatPrice(payload.total)}`,
+            `Customer: ${payload.customerName ?? "—"}`,
+          ].join("\n"),
+        });
+      } catch (error) {
+        console.error(
+          `[notifications:${whatsappProvider.name}] Failed to send admin new-order WhatsApp:`,
+          error
+        );
+      }
+    }
   }
 
   return { emailSent, whatsappSent };

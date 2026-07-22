@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { resolveResendCredentials } from "@/lib/integrations/resolve";
 import type {
   EmailMessage,
   EmailNotificationProvider,
@@ -40,16 +41,15 @@ export class StubEmailProvider implements EmailNotificationProvider {
   }
 }
 
-export function createEmailProvider(): EmailNotificationProvider {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM_EMAIL;
+export async function createEmailProvider(): Promise<EmailNotificationProvider> {
+  const credentials = await resolveResendCredentials();
 
-  if (!apiKey || !from) {
+  if (!credentials) {
     console.warn(
-      "[notifications] RESEND_API_KEY / RESEND_FROM_EMAIL missing — using stub email provider."
+      "[notifications] Resend credentials missing (DB/env) — using stub email provider."
     );
     return new StubEmailProvider();
   }
 
-  return new ResendEmailProvider(apiKey, from);
+  return new ResendEmailProvider(credentials.apiKey, credentials.fromEmail);
 }

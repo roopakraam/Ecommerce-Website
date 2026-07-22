@@ -4,10 +4,13 @@ import { revalidatePath } from "next/cache";
 import {
   createAdminProduct,
   deleteAdminProduct,
+  deleteAdminProducts,
   ensureUniqueProductSlug,
+  setAdminProductsActive,
   toggleAdminProductActive,
   updateAdminProduct,
 } from "@/lib/db/admin-products";
+import { ADMIN_PRODUCTS_PATH } from "@/lib/admin/products";
 import { adminProductFormSchema } from "@/lib/validations/admin-product";
 import { slugify } from "@/lib/utils/slugify";
 import { createServerClient } from "@/lib/supabase/server";
@@ -72,9 +75,7 @@ async function removeStoragePaths(urls: string[]) {
   }
 
   const supabase = await createServerClient();
-  const { error } = await supabase.storage
-    .from("product-images")
-    .remove(paths);
+  const { error } = await supabase.storage.from("product-images").remove(paths);
 
   if (error) {
     console.error("Failed to remove product image files:", error.message);
@@ -91,6 +92,20 @@ function mapVariants(parsed: ReturnType<typeof adminProductFormSchema.parse>) {
     price_override: variant.price_override,
     is_active: variant.is_active,
   }));
+}
+
+function revalidateProductPaths(productId?: string, slug?: string) {
+  revalidatePath(ADMIN_PRODUCTS_PATH);
+  revalidatePath("/admin/dashboard/products");
+  revalidatePath("/products");
+  revalidatePath("/");
+  if (productId) {
+    revalidatePath(`${ADMIN_PRODUCTS_PATH}/${productId}/edit`);
+    revalidatePath(`/admin/dashboard/products/${productId}/edit`);
+  }
+  if (slug) {
+    revalidatePath(`/products/${slug}`);
+  }
 }
 
 export async function createProductAction(input: {
@@ -123,9 +138,7 @@ export async function createProductAction(input: {
       variants: mapVariants(parsed.data),
     });
 
-    revalidatePath("/admin/dashboard/products");
-    revalidatePath("/products");
-    revalidatePath("/");
+    revalidateProductPaths(product.id, product.slug);
 
     return { success: true, productId: product.id };
   } catch (error) {
@@ -171,12 +184,7 @@ export async function updateProductAction(input: {
     );
 
     await removeStoragePaths(removedImageUrls);
-
-    revalidatePath("/admin/dashboard/products");
-    revalidatePath(`/admin/dashboard/products/${product.id}/edit`);
-    revalidatePath("/products");
-    revalidatePath(`/products/${product.slug}`);
-    revalidatePath("/");
+    revalidateProductPaths(product.id, product.slug);
 
     return { success: true, productId: product.id };
   } catch (error) {
@@ -193,9 +201,7 @@ export async function toggleProductActiveAction(
 ): Promise<AdminProductMutationResult> {
   try {
     await toggleAdminProductActive(productId, isActive);
-    revalidatePath("/admin/dashboard/products");
-    revalidatePath("/products");
-    revalidatePath("/");
+    revalidateProductPaths(productId);
     return { success: true };
   } catch (error) {
     return {
@@ -212,14 +218,45 @@ export async function deleteProductAction(
   try {
     const imageUrls = await deleteAdminProduct(productId);
     await removeStoragePaths(imageUrls);
-    revalidatePath("/admin/dashboard/products");
-    revalidatePath("/products");
-    revalidatePath("/");
+    revalidateProductPaths();
     return { success: true };
   } catch (error) {
     return {
       success: false,
       error: error instanceof Error ? error.message : "Failed to delete product.",
+    };
+  }
+}
+
+export async function bulkSetProductsActiveAction(input: {
+  productIds: string[];
+  isActive: boolean;
+}): Promise<AdminProductMutationResult> {
+  try {
+    await setAdminProductsActive(input.productIds, input.isActive);
+    revalidateProductPaths();
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error:
+        error instanceof Error ? error.message : "Failed to update products.",
+    };
+  }
+}
+
+export async function bulkDeleteProductsAction(input: {
+  productIds: string[];
+}): Promise<AdminProductMutationResult> {
+  try {
+    const imageUrls = await deleteAdminProducts(input.productIds);
+    await removeStoragePaths(imageUrls);
+    revalidateProductPaths();
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to delete products.",
     };
   }
 }

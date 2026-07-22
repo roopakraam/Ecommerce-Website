@@ -1,14 +1,33 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { updateAdminOrderStatus } from "@/lib/db/admin-orders";
+import {
+  updateAdminOrderInternalNotes,
+  updateAdminOrderStatus,
+} from "@/lib/db/admin-orders";
+import { ADMIN_ORDERS_PATH } from "@/lib/admin/orders";
 import { notifyOrderStatusChange } from "@/lib/notifications/order-status";
-import { updateOrderStatusSchema } from "@/lib/validations/admin-order";
+import {
+  updateOrderNotesSchema,
+  updateOrderStatusSchema,
+} from "@/lib/validations/admin-order";
 import type { OrderStatus } from "@/types";
 
 export type UpdateOrderStatusResult =
   | { success: true; status: OrderStatus }
   | { success: false; error: string };
+
+export type UpdateOrderNotesResult =
+  | { success: true }
+  | { success: false; error: string };
+
+function revalidateOrderPaths(orderId: string) {
+  revalidatePath(ADMIN_ORDERS_PATH);
+  revalidatePath(`${ADMIN_ORDERS_PATH}/${orderId}`);
+  revalidatePath("/admin/dashboard/orders");
+  revalidatePath(`/admin/dashboard/orders/${orderId}`);
+  revalidatePath("/admin/dashboard");
+}
 
 export async function updateOrderStatusAction(input: {
   orderId: string;
@@ -39,8 +58,7 @@ export async function updateOrderStatusAction(input: {
       });
     }
 
-    revalidatePath("/admin/dashboard/orders");
-    revalidatePath(`/admin/dashboard/orders/${order.id}`);
+    revalidateOrderPaths(order.id);
 
     return { success: true, status: order.status };
   } catch (error) {
@@ -48,6 +66,37 @@ export async function updateOrderStatusAction(input: {
       success: false,
       error:
         error instanceof Error ? error.message : "Failed to update order status.",
+    };
+  }
+}
+
+export async function updateOrderNotesAction(input: {
+  orderId: string;
+  internalNotes: string;
+}): Promise<UpdateOrderNotesResult> {
+  const parsed = updateOrderNotesSchema.safeParse(input);
+
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Invalid notes.",
+    };
+  }
+
+  try {
+    const order = await updateAdminOrderInternalNotes(
+      parsed.data.orderId,
+      parsed.data.internalNotes
+    );
+    revalidateOrderPaths(order.id);
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to update internal notes.",
     };
   }
 }

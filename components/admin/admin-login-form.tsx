@@ -4,6 +4,9 @@ import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 interface AdminLoginFormProps {
   nextPath: string;
@@ -52,67 +55,56 @@ export function AdminLoginForm({ nextPath }: AdminLoginFormProps) {
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-4 py-12 sm:px-6">
-      <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6 shadow-xl">
-        <h1 className="text-2xl font-bold text-white">Admin login</h1>
-        <p className="mt-2 text-sm text-neutral-400">
-          Sign in with your admin email and password.
+      <div className="rounded-xl border border-border bg-card p-6 shadow-xl">
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">
+          Admin login
+        </h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Sign in with an account listed in{" "}
+          <code className="text-xs text-primary">admin_users</code>.
         </p>
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-          <div>
-            <label
-              htmlFor="email"
-              className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-300"
-            >
-              Email
-            </label>
-            <input
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input
               id="email"
               type="email"
               required
+              autoComplete="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              className="w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2.5 text-sm text-white outline-none ring-lime-400 transition focus:border-lime-400 focus:ring-2"
               placeholder="admin@example.com"
             />
           </div>
 
-          <div>
-            <label
-              htmlFor="password"
-              className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-300"
-            >
-              Password
-            </label>
-            <input
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
+            <Input
               id="password"
               type="password"
               required
+              autoComplete="current-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2.5 text-sm text-white outline-none ring-lime-400 transition focus:border-lime-400 focus:ring-2"
               placeholder="Enter your password"
             />
           </div>
 
-          {errorMessage && (
-            <p className="rounded-lg border border-red-800 bg-red-950/50 px-3 py-2 text-sm text-red-200">
+          {errorMessage ? (
+            <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive-foreground">
               {errorMessage}
             </p>
-          )}
+          ) : null}
 
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full rounded-full bg-lime-400 px-4 py-2.5 text-sm font-semibold text-neutral-950 transition hover:bg-lime-300 disabled:cursor-not-allowed disabled:opacity-60"
-          >
+          <Button type="submit" className="w-full" disabled={isSubmitting}>
             {isSubmitting ? "Signing in..." : "Sign in"}
-          </button>
+          </Button>
         </form>
 
         <Link
           href="/"
-          className="mt-5 inline-block text-xs text-neutral-400 underline-offset-4 transition hover:text-neutral-200 hover:underline"
+          className="mt-5 inline-block text-xs text-muted-foreground underline-offset-4 transition hover:text-foreground hover:underline"
         >
           Back to storefront
         </Link>
