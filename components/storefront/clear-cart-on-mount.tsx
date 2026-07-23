@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { clearServerCart } from "@/lib/hooks/use-cart-sync";
 import { useCartStore } from "@/lib/store/cart";
 
 export function ClearCartOnMount() {
@@ -11,6 +12,7 @@ export function ClearCartOnMount() {
     if (!cleared.current) {
       cleared.current = true;
       clearCart();
+      void clearServerCart();
     }
   }, [clearCart]);
 

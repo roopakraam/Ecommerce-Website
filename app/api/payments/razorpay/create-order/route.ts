@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import {
+  getOrderForPayment,
   requireOrderOwnerOrAdmin,
-  setOrderPaymentReference,
+  reserveOrderInventory,
+  setOrderPaymentReferenceIfEmpty,
 } from "@/lib/db/orders";
+import { logger } from "@/lib/logger";
 import {
   getRazorpayClient,
   getRazorpayKeyId,
@@ -32,11 +35,18 @@ export async function POST(request: Request) {
       );
     }
 
-    const order = access.order!;
+    let order = access.order!;
 
     if (order.payment_status === "paid") {
       return NextResponse.json(
         { error: "This order has already been paid." },
+        { status: 400 }
+      );
+    }
+
+    if (order.status === "cancelled") {
+      return NextResponse.json(
+        { error: "This order was cancelled and cannot be paid." },
         { status: 400 }
       );
     }
@@ -46,6 +56,24 @@ export async function POST(request: Request) {
         { error: "This order cannot be paid at this time." },
         { status: 400 }
       );
+    }
+
+    if (!order.inventory_reserved) {
+      const reserved = await reserveOrderInventory(orderId);
+      if (!reserved.ok) {
+        return NextResponse.json(
+          {
+            error:
+              reserved.error ||
+              "Stock is no longer available for this order.",
+          },
+          { status: 409 }
+        );
+      }
+      const refreshed = await getOrderForPayment(orderId);
+      if (refreshed) {
+        order = refreshed;
+      }
     }
 
     // Reuse existing Razorpay order when payment_reference is still the order id
@@ -75,23 +103,42 @@ export async function POST(request: Request) {
       },
     });
 
-    const saved = await setOrderPaymentReference(orderId, razorpayOrder.id);
-    if (!saved) {
+    const linkResult = await setOrderPaymentReferenceIfEmpty(
+      orderId,
+      razorpayOrder.id
+    );
+
+    if (linkResult === "failed") {
       return NextResponse.json(
         { error: "Failed to link Razorpay order." },
         { status: 500 }
       );
     }
 
+    let razorpayOrderId = razorpayOrder.id;
+    if (linkResult === "already_set") {
+      const latest = await getOrderForPayment(orderId);
+      if (latest?.payment_reference?.startsWith("order_")) {
+        razorpayOrderId = latest.payment_reference;
+      } else {
+        return NextResponse.json(
+          { error: "Failed to link Razorpay order." },
+          { status: 500 }
+        );
+      }
+    }
+
     return NextResponse.json({
       keyId: await getRazorpayKeyId(),
-      razorpayOrderId: razorpayOrder.id,
+      razorpayOrderId,
       amount: amountInPaise,
       currency: "INR",
       orderTotal: order.total,
     });
   } catch (error) {
-    console.error("Razorpay create-order failed:", error);
+    logger.error("Razorpay create-order failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json(
       { error: "Failed to create Razorpay order." },
       { status: 500 }

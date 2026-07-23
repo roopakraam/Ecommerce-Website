@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createServerClient } from "@/lib/supabase/server";
+import { incrementCouponUsage } from "@/lib/db/coupons";
 import type {
   Order,
   OrderItem,
@@ -24,6 +25,8 @@ export interface OrderConfirmation {
   status: OrderStatus;
   subtotal: number;
   shipping_fee: number;
+  discount_amount: number;
+  coupon_code: string | null;
   total: number;
   payment_status: PaymentStatus;
   payment_provider: string | null;
@@ -105,7 +108,7 @@ export async function getOrderConfirmation(
   const { data, error } = await admin
     .from("orders")
     .select(
-      "id, customer_id, status, subtotal, shipping_fee, total, payment_status, payment_provider, payment_reference, shipping_address, created_at, order_items(id, order_id, product_id, variant_id, product_name_snapshot, size_snapshot, color_snapshot, sku_snapshot, unit_price, quantity)"
+      "id, customer_id, status, subtotal, shipping_fee, discount_amount, coupon_code, total, payment_status, payment_provider, payment_reference, shipping_address, created_at, order_items(id, order_id, product_id, variant_id, product_name_snapshot, size_snapshot, color_snapshot, sku_snapshot, unit_price, quantity)"
     )
     .eq("id", orderId)
     .maybeSingle();
@@ -115,7 +118,16 @@ export async function getOrderConfirmation(
     return null;
   }
 
-  return data as OrderConfirmation | null;
+  const row = data as OrderConfirmation | null;
+  if (!row) {
+    return null;
+  }
+
+  return {
+    ...row,
+    discount_amount: Number(row.discount_amount ?? 0),
+    coupon_code: row.coupon_code ?? null,
+  };
 }
 
 export async function getOrderForPayment(
@@ -160,10 +172,14 @@ export async function getOrderByPaymentReference(
   return data as OrderForPayment | null;
 }
 
-export async function setOrderPaymentReference(
+/**
+ * Links a Razorpay order id only when no order_* reference is stored yet.
+ * Prevents concurrent create-order races from overwriting each other.
+ */
+export async function setOrderPaymentReferenceIfEmpty(
   orderId: string,
   razorpayOrderId: string
-): Promise<boolean> {
+): Promise<"saved" | "already_set" | "failed"> {
   const admin = createAdminClient();
 
   const { data, error } = await admin
@@ -171,14 +187,52 @@ export async function setOrderPaymentReference(
     .update({ payment_reference: razorpayOrderId })
     .eq("id", orderId)
     .in("payment_status", ["pending", "failed"])
+    .is("payment_reference", null)
     .select("id");
 
   if (error) {
     console.error("Failed to update payment reference:", error.message);
-    return false;
+    return "failed";
   }
 
-  return Array.isArray(data) && data.length > 0;
+  if (Array.isArray(data) && data.length > 0) {
+    return "saved";
+  }
+
+  const existing = await getOrderForPayment(orderId);
+  if (
+    existing?.payment_reference &&
+    existing.payment_reference.startsWith("order_")
+  ) {
+    return "already_set";
+  }
+
+  // Allow overwrite when reference is a payment id or empty-but-not-null edge case
+  // after soft-fail retries that somehow lost the order_ id.
+  const { data: retryData, error: retryError } = await admin
+    .from("orders")
+    .update({ payment_reference: razorpayOrderId })
+    .eq("id", orderId)
+    .in("payment_status", ["pending", "failed"])
+    .select("id");
+
+  if (retryError) {
+    console.error("Failed to update payment reference (retry):", retryError.message);
+    return "failed";
+  }
+
+  return Array.isArray(retryData) && retryData.length > 0
+    ? "saved"
+    : "failed";
+}
+
+/** @deprecated Prefer setOrderPaymentReferenceIfEmpty to avoid races. */
+export async function setOrderPaymentReference(
+  orderId: string,
+  razorpayOrderId: string
+): Promise<boolean> {
+  const result = await setOrderPaymentReferenceIfEmpty(orderId, razorpayOrderId);
+  return result === "saved" || result === "already_set";
 }
 
 export async function reserveOrderInventory(orderId: string): Promise<
@@ -225,6 +279,7 @@ export type ConfirmPaymentResult =
 /**
  * Idempotent mark-paid used by verify route and Razorpay webhook.
  * Detects 0-row updates and treats already-paid as success.
+ * Re-reserves inventory when a soft-fail/cron race released stock before capture.
  */
 export async function confirmOrderPaymentPaid(params: {
   orderId: string;
@@ -242,6 +297,13 @@ export async function confirmOrderPaymentPaid(params: {
     return { ok: true, alreadyPaid: true };
   }
 
+  if (existing.status === "cancelled") {
+    return {
+      ok: false,
+      error: "This order was cancelled and cannot be paid.",
+    };
+  }
+
   if (
     !existing.payment_reference ||
     existing.payment_reference !== params.razorpayOrderId
@@ -250,6 +312,18 @@ export async function confirmOrderPaymentPaid(params: {
       ok: false,
       error: "Razorpay order does not match this checkout.",
     };
+  }
+
+  if (!existing.inventory_reserved) {
+    const reserved = await reserveOrderInventory(params.orderId);
+    if (!reserved.ok) {
+      return {
+        ok: false,
+        error:
+          reserved.error ||
+          "Stock is no longer available for this order. Contact support for a refund.",
+      };
+    }
   }
 
   const { data, error } = await admin
@@ -263,6 +337,7 @@ export async function confirmOrderPaymentPaid(params: {
     .eq("id", params.orderId)
     .eq("payment_reference", params.razorpayOrderId)
     .in("payment_status", ["pending", "failed"])
+    .neq("status", "cancelled")
     .select("id");
 
   if (error) {
@@ -278,6 +353,29 @@ export async function confirmOrderPaymentPaid(params: {
     return { ok: false, error: "Failed to update order payment status." };
   }
 
+  // Coupon usage is counted only on successful payment (not at order create).
+  const { data: paidOrder } = await admin
+    .from("orders")
+    .select("coupon_id")
+    .eq("id", params.orderId)
+    .maybeSingle();
+
+  const couponId =
+    paidOrder && typeof paidOrder === "object" && "coupon_id" in paidOrder
+      ? (paidOrder.coupon_id as string | null)
+      : null;
+
+  if (couponId) {
+    const usageOk = await incrementCouponUsage(couponId);
+    if (!usageOk) {
+      console.error(
+        "Order paid but coupon usage increment failed:",
+        params.orderId,
+        couponId
+      );
+    }
+  }
+
   return { ok: true, alreadyPaid: false };
 }
 
@@ -291,9 +389,16 @@ export async function markOrderPaymentPaid(params: {
   return result.ok;
 }
 
+/**
+ * Soft-fail: marks payment_status=failed but keeps inventory reserved so a
+ * delayed capture / webhook / retry cannot oversell. Pass releaseInventory
+ * only for terminal abandon (cron cancel).
+ */
 export async function markOrderPaymentFailed(
-  orderId: string
+  orderId: string,
+  options: { releaseInventory?: boolean } = {}
 ): Promise<boolean> {
+  const releaseInventory = options.releaseInventory === true;
   const existing = await getOrderForPayment(orderId);
   if (!existing) {
     return false;
@@ -304,6 +409,9 @@ export async function markOrderPaymentFailed(
   }
 
   if (existing.payment_status === "failed") {
+    if (releaseInventory && existing.inventory_reserved) {
+      await releaseOrderInventory(orderId);
+    }
     return true;
   }
 
@@ -323,9 +431,120 @@ export async function markOrderPaymentFailed(
 
   if (!Array.isArray(data) || data.length === 0) {
     const again = await getOrderForPayment(orderId);
-    return again?.payment_status === "failed";
+    if (again?.payment_status === "failed") {
+      if (releaseInventory && again.inventory_reserved) {
+        await releaseOrderInventory(orderId);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  if (releaseInventory) {
+    await releaseOrderInventory(orderId);
+  }
+  return true;
+}
+
+/**
+ * Terminal abandon for stale unpaid checkouts: cancel + release stock so
+ * a late payment cannot confirm against freed inventory.
+ */
+export async function abandonUnpaidReservedOrder(
+  orderId: string
+): Promise<boolean> {
+  const existing = await getOrderForPayment(orderId);
+  if (!existing) {
+    return false;
+  }
+
+  if (existing.payment_status === "paid") {
+    return false;
+  }
+
+  if (existing.status === "cancelled") {
+    if (existing.inventory_reserved) {
+      await releaseOrderInventory(orderId);
+    }
+    return true;
+  }
+
+  const admin = createAdminClient();
+
+  const { data, error } = await admin
+    .from("orders")
+    .update({
+      payment_status: "failed",
+      status: "cancelled",
+    })
+    .eq("id", orderId)
+    .in("payment_status", ["pending", "failed"])
+    .neq("status", "cancelled")
+    .select("id");
+
+  if (error) {
+    console.error("Failed to abandon unpaid order:", error.message);
+    return false;
+  }
+
+  if (!Array.isArray(data) || data.length === 0) {
+    const again = await getOrderForPayment(orderId);
+    if (again?.status === "cancelled") {
+      if (again.inventory_reserved) {
+        await releaseOrderInventory(orderId);
+      }
+      return true;
+    }
+    return false;
   }
 
   await releaseOrderInventory(orderId);
   return true;
+}
+
+/**
+ * Finds abandoned checkouts that still hold reserved stock past a TTL and
+ * cancels them, releasing inventory.
+ */
+export async function releaseStaleReservedOrders(options: {
+  olderThanMinutes: number;
+}): Promise<{ processed: number; released: number; failed: number }> {
+  const olderThanMinutes = Math.max(1, Math.floor(options.olderThanMinutes));
+  const cutoff = new Date(
+    Date.now() - olderThanMinutes * 60 * 1000
+  ).toISOString();
+
+  const admin = createAdminClient();
+
+  const { data, error } = await admin
+    .from("orders")
+    .select("id")
+    .in("payment_status", ["pending", "failed"])
+    .eq("inventory_reserved", true)
+    .neq("status", "cancelled")
+    .lt("created_at", cutoff);
+
+  if (error) {
+    console.error("Failed to query stale reserved orders:", error.message);
+    throw new Error("Failed to query stale reserved orders.");
+  }
+
+  const rows = data ?? [];
+  let released = 0;
+  let failed = 0;
+
+  for (const row of rows) {
+    const ok = await abandonUnpaidReservedOrder(row.id as string);
+    if (ok) {
+      released += 1;
+    } else {
+      failed += 1;
+    }
+  }
+
+  return {
+    processed: rows.length,
+    released,
+    failed,
+  };
 }

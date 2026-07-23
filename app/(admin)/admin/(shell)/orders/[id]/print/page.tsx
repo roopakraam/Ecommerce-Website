@@ -37,10 +37,12 @@ export default async function AdminOrderPackingSlipPage({
     notFound();
   }
 
+  const discountAmount = Number(order.discount_amount ?? 0);
   const taxAmount = taxFromOrderAmounts({
     subtotal: Number(order.subtotal),
     shippingFee: Number(order.shipping_fee),
     total: Number(order.total),
+    discountAmount,
   });
 
   const shortId = order.id.slice(0, 8).toUpperCase();
@@ -190,6 +192,15 @@ export default async function AdminOrderPackingSlipPage({
               <dt className="text-neutral-600">Subtotal</dt>
               <dd>{formatPrice(Number(order.subtotal))}</dd>
             </div>
+            {discountAmount > 0 ? (
+              <div className="flex justify-between gap-6">
+                <dt className="text-neutral-600">
+                  Discount
+                  {order.coupon_code ? ` (${order.coupon_code})` : ""}
+                </dt>
+                <dd>−{formatPrice(discountAmount)}</dd>
+              </div>
+            ) : null}
             <div className="flex justify-between gap-6">
               <dt className="text-neutral-600">Shipping</dt>
               <dd>{formatPrice(Number(order.shipping_fee))}</dd>

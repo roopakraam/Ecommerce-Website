@@ -41,3 +41,24 @@ export async function getCategoryIdBySlug(slug: string): Promise<string | null> 
   const row = data as { id: string } | null;
   return row?.id ?? null;
 }
+
+export async function getCategoryIdsBySlugs(slugs: string[]): Promise<string[]> {
+  if (slugs.length === 0) {
+    return [];
+  }
+
+  const supabase = createStaticClient();
+
+  const { data, error } = await supabase
+    .from("categories")
+    .select("id")
+    .in("slug", slugs);
+
+  if (error) {
+    console.error("Failed to fetch categories:", error.message);
+    return [];
+  }
+
+  const rows = (data ?? []) as Array<{ id: string }>;
+  return rows.map((row) => row.id);
+}

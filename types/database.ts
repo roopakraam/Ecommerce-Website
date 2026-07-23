@@ -188,12 +188,37 @@ export interface AddressUpdate {
   is_default?: boolean;
 }
 
+/** Row in public.cart_items — distinct from storefront CartItem in lib/store/cart */
+export interface CartItemRow {
+  id: string;
+  customer_id: string;
+  variant_id: string;
+  quantity: number;
+  updated_at: string;
+}
+
+export interface CartItemInsert {
+  id?: string;
+  customer_id: string;
+  variant_id: string;
+  quantity: number;
+  updated_at?: string;
+}
+
+export interface CartItemUpdate {
+  quantity?: number;
+  updated_at?: string;
+}
+
 export interface Order {
   id: string;
   customer_id: string;
   status: OrderStatus;
   subtotal: number;
   shipping_fee: number;
+  discount_amount: number;
+  coupon_id: string | null;
+  coupon_code: string | null;
   total: number;
   payment_status: PaymentStatus;
   payment_provider: string | null;
@@ -210,6 +235,9 @@ export interface OrderInsert {
   status?: OrderStatus;
   subtotal: number;
   shipping_fee?: number;
+  discount_amount?: number;
+  coupon_id?: string | null;
+  coupon_code?: string | null;
   total: number;
   payment_status?: PaymentStatus;
   payment_provider?: string | null;
@@ -224,6 +252,9 @@ export interface OrderUpdate {
   status?: OrderStatus;
   subtotal?: number;
   shipping_fee?: number;
+  discount_amount?: number;
+  coupon_id?: string | null;
+  coupon_code?: string | null;
   total?: number;
   payment_status?: PaymentStatus;
   payment_provider?: string | null;
@@ -455,6 +486,33 @@ export interface CouponUpdate {
 
 export type ReviewStatus = "pending" | "approved" | "rejected";
 
+export type ContactMessageStatus = "new" | "emailed" | "email_failed";
+
+export interface ContactMessage {
+  id: string;
+  name: string;
+  email: string;
+  message: string;
+  status: ContactMessageStatus;
+  created_at: string;
+}
+
+export interface ContactMessageInsert {
+  id?: string;
+  name: string;
+  email: string;
+  message: string;
+  status?: ContactMessageStatus;
+  created_at?: string;
+}
+
+export interface ContactMessageUpdate {
+  name?: string;
+  email?: string;
+  message?: string;
+  status?: ContactMessageStatus;
+}
+
 export interface ProductReview {
   id: string;
   product_id: string;
@@ -529,6 +587,11 @@ export interface Database {
         Insert: AddressInsert;
         Update: AddressUpdate;
       };
+      cart_items: {
+        Row: CartItemRow;
+        Insert: CartItemInsert;
+        Update: CartItemUpdate;
+      };
       orders: {
         Row: Order;
         Insert: OrderInsert;
@@ -563,6 +626,11 @@ export interface Database {
         Row: ProductReview;
         Insert: ProductReviewInsert;
         Update: ProductReviewUpdate;
+      };
+      contact_messages: {
+        Row: ContactMessage;
+        Insert: ContactMessageInsert;
+        Update: ContactMessageUpdate;
       };
       store_settings: {
         Row: StoreSettings;

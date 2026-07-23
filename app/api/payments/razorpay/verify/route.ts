@@ -3,8 +3,13 @@ import {
   confirmOrderPaymentPaid,
   requireOrderOwnerOrAdmin,
 } from "@/lib/db/orders";
+import { logger } from "@/lib/logger";
 import { notifyOrderPaid } from "@/lib/notifications/order-confirmation";
-import { getRazorpayKeySecret } from "@/lib/razorpay/client";
+import { validateRazorpayPaymentAgainstOrder } from "@/lib/payments/validate-razorpay-payment";
+import {
+  getRazorpayClient,
+  getRazorpayKeySecret,
+} from "@/lib/razorpay/client";
 import { verifyRazorpayPaymentSignature } from "@/lib/razorpay/verify-signature";
 import { verifyRazorpayPaymentSchema } from "@/lib/validations/payment";
 
@@ -69,6 +74,13 @@ export async function POST(request: Request) {
       });
     }
 
+    if (order.status === "cancelled") {
+      return NextResponse.json(
+        { error: "This order was cancelled and cannot be paid." },
+        { status: 400 }
+      );
+    }
+
     if (
       !order.payment_reference ||
       order.payment_reference !== razorpay_order_id
@@ -76,6 +88,44 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: "Razorpay order does not match this checkout." },
         { status: 400 }
+      );
+    }
+
+    try {
+      const razorpay = await getRazorpayClient();
+      const payment = (await razorpay.payments.fetch(
+        razorpay_payment_id
+      )) as {
+        id?: string;
+        order_id?: string;
+        amount?: number | string;
+        currency?: string;
+        status?: string;
+      };
+
+      const amountCheck = validateRazorpayPaymentAgainstOrder({
+        payment,
+        expectedOrderTotalRupees: order.total,
+        expectedRazorpayOrderId: razorpay_order_id,
+        requireCaptured: true,
+      });
+
+      if (!amountCheck.ok) {
+        logger.warn("Razorpay verify amount mismatch", {
+          orderId,
+          error: amountCheck.error,
+        });
+        return NextResponse.json({ error: amountCheck.error }, { status: 400 });
+      }
+    } catch (fetchError) {
+      logger.error("Failed to fetch Razorpay payment for verify", {
+        orderId,
+        error:
+          fetchError instanceof Error ? fetchError.message : String(fetchError),
+      });
+      return NextResponse.json(
+        { error: "Unable to verify payment with Razorpay." },
+        { status: 502 }
       );
     }
 
@@ -100,7 +150,9 @@ export async function POST(request: Request) {
       redirectTo: `/order-confirmation/${orderId}`,
     });
   } catch (error) {
-    console.error("Razorpay verify failed:", error);
+    logger.error("Razorpay verify failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json(
       { error: "Payment verification failed." },
       { status: 500 }

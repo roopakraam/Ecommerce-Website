@@ -19,3 +19,13 @@ export const updateOrderNotesSchema = z.object({
 });
 
 export type UpdateOrderNotesInput = z.infer<typeof updateOrderNotesSchema>;
+
+export const refundAdminOrderSchema = z.object({
+  orderId: z.string().uuid("Invalid order id"),
+  reason: z
+    .string()
+    .max(500, "Reason must be 500 characters or fewer")
+    .optional(),
+});
+
+export type RefundAdminOrderInput = z.infer<typeof refundAdminOrderSchema>;

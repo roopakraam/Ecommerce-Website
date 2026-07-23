@@ -4,12 +4,14 @@ import { notFound } from "next/navigation";
 import { AddToCartSection } from "@/components/storefront/add-to-cart-section";
 import { ProductImageGallery } from "@/components/storefront/product-image-gallery";
 import { ProductJsonLd } from "@/components/storefront/product-json-ld";
+import { ProductReviewsSection } from "@/components/storefront/product-reviews-section";
 import {
   getAllProductSlugs,
   getPrimaryImage,
   getProductBySlug,
   getSortedImages,
 } from "@/lib/db/products";
+import { getApprovedReviewsForProduct } from "@/lib/db/reviews";
 import { buildPageMetadata } from "@/lib/seo/site";
 
 export const revalidate = 60;
@@ -62,13 +64,14 @@ export default async function ProductDetailPage({
 
   const images = getSortedImages(product);
   const primaryImage = getPrimaryImage(product);
+  const reviews = await getApprovedReviewsForProduct(product.id);
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-14">
       <ProductJsonLd product={product} images={images} />
 
-      <nav className="mb-8 text-sm text-neutral-500">
-        <Link href="/products" className="hover:text-neutral-950">
+      <nav className="mb-8 font-mono text-xs text-dust">
+        <Link href="/products" className="hover:text-bone">
           Shop
         </Link>
         {product.categories && (
@@ -76,14 +79,14 @@ export default async function ProductDetailPage({
             <span className="mx-2">/</span>
             <Link
               href={`/products?category=${product.categories.slug}`}
-              className="hover:text-neutral-950"
+              className="hover:text-bone"
             >
               {product.categories.name}
             </Link>
           </>
         )}
         <span className="mx-2">/</span>
-        <span className="text-neutral-950">{product.name}</span>
+        <span className="text-bone">{product.name}</span>
       </nav>
 
       <div className="grid gap-10 lg:grid-cols-2 lg:gap-14">
@@ -93,18 +96,18 @@ export default async function ProductDetailPage({
           {product.categories && (
             <Link
               href={`/products?category=${product.categories.slug}`}
-              className="text-sm font-semibold uppercase tracking-widest text-lime-600 hover:text-lime-500"
+              className="font-mono text-xs font-semibold uppercase tracking-widest text-neon hover:text-bone"
             >
               {product.categories.name}
             </Link>
           )}
 
-          <h1 className="text-3xl font-bold tracking-tight text-neutral-950 sm:text-4xl">
+          <h1 className="text-3xl font-black uppercase tracking-tight text-bone sm:text-4xl">
             {product.name}
           </h1>
 
           {product.description && (
-            <p className="text-base leading-relaxed text-neutral-600">
+            <p className="text-base leading-relaxed text-dust">
               {product.description}
             </p>
           )}
@@ -124,6 +127,12 @@ export default async function ProductDetailPage({
           />
         </div>
       </div>
+
+      <ProductReviewsSection
+        productId={product.id}
+        productSlug={product.slug}
+        reviews={reviews}
+      />
     </main>
   );
 }

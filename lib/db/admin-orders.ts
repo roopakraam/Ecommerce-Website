@@ -1,10 +1,13 @@
 import { createServerClient } from "@/lib/supabase/server";
+import { releaseOrderInventory } from "@/lib/db/orders";
+import { createRazorpayRefund } from "@/lib/razorpay/client";
 import type {
   AuditLog,
   Customer,
   Order,
   OrderItem,
   OrderStatus,
+  PaymentStatus,
   ShippingAddress,
 } from "@/types";
 
@@ -12,7 +15,7 @@ export { ORDER_STATUSES, isOrderStatus } from "@/lib/orders/status";
 
 /** Base columns present without the notes/audit migration. */
 const ORDER_SELECT_LIST =
-  "id, customer_id, status, subtotal, shipping_fee, total, payment_status, payment_provider, payment_reference, shipping_address, inventory_reserved, created_at, customers(id, full_name, phone)";
+  "id, customer_id, status, subtotal, shipping_fee, discount_amount, coupon_id, coupon_code, total, payment_status, payment_provider, payment_reference, shipping_address, inventory_reserved, created_at, customers(id, full_name, phone)";
 
 const ORDER_SELECT_DETAIL = `${ORDER_SELECT_LIST}, order_items(id, order_id, product_id, variant_id, product_name_snapshot, size_snapshot, color_snapshot, sku_snapshot, unit_price, quantity)`;
 
@@ -321,6 +324,24 @@ export async function updateAdminOrderStatus(
     throw new Error("Failed to update order status.");
   }
 
+  // Unpaid/pending reservations: release stock on cancel so checkout abandons
+  // do not lock inventory forever. Paid+cancelled: do NOT auto-release —
+  // refund-to-shelf is an explicit ops/refund decision, not implied by cancel.
+  if (
+    status === "cancelled" &&
+    existing.inventory_reserved &&
+    (existing.payment_status === "pending" ||
+      existing.payment_status === "failed")
+  ) {
+    const released = await releaseOrderInventory(orderId);
+    if (!released) {
+      console.error(
+        "Failed to release inventory after admin cancel for order:",
+        orderId
+      );
+    }
+  }
+
   await writeAuditLog(supabase, {
     entityType: "order",
     entityId: orderId,
@@ -339,6 +360,204 @@ export async function updateAdminOrderStatus(
   }
 
   return { order: updated, previousStatus };
+}
+
+export type RefundAdminOrderResult = {
+  order: AdminOrderDetail;
+  alreadyRefunded: boolean;
+  previousPaymentStatus: PaymentStatus;
+  previousStatus: OrderStatus;
+  statusChanged: boolean;
+  inventoryReleased: boolean;
+  razorpayRefundId: string | null;
+};
+
+/**
+ * Admin-triggered full Razorpay refund for a paid order.
+ *
+ * - Always sets payment_status to refunded on success.
+ * - Sets order status to cancelled only when current status is pending or confirmed
+ *   (does not auto-cancel shipped/delivered).
+ * - Releases reserved inventory (restores stock) when inventory_reserved is still true.
+ */
+export async function refundAdminOrder(
+  orderId: string,
+  options: { reason?: string } = {}
+): Promise<RefundAdminOrderResult> {
+  const { supabase, user } = await assertAdmin();
+
+  const existing = await getAdminOrderById(orderId);
+  if (!existing) {
+    throw new Error("Order not found.");
+  }
+
+  const previousPaymentStatus = existing.payment_status;
+  const previousStatus = existing.status;
+
+  if (previousPaymentStatus === "refunded") {
+    return {
+      order: existing,
+      alreadyRefunded: true,
+      previousPaymentStatus,
+      previousStatus,
+      statusChanged: false,
+      inventoryReleased: false,
+      razorpayRefundId: null,
+    };
+  }
+
+  if (previousPaymentStatus !== "paid") {
+    throw new Error("Only paid orders can be refunded.");
+  }
+
+  const paymentId = existing.payment_reference?.trim() ?? "";
+  if (!paymentId.startsWith("pay_")) {
+    throw new Error(
+      "Order is missing a Razorpay payment id. Cannot issue a refund."
+    );
+  }
+
+  if (existing.payment_provider && existing.payment_provider !== "razorpay") {
+    throw new Error(
+      `Refunds are only supported for Razorpay (got ${existing.payment_provider}).`
+    );
+  }
+
+  const reason = options.reason?.trim() || undefined;
+  const shouldCancel =
+    previousStatus === "pending" || previousStatus === "confirmed";
+  const nextStatus: OrderStatus = shouldCancel ? "cancelled" : previousStatus;
+
+  // Claim the refund in DB first to prevent double Razorpay refunds on concurrent clicks.
+  const claimPayload: {
+    payment_status: PaymentStatus;
+    status?: OrderStatus;
+  } = {
+    payment_status: "refunded",
+  };
+  if (shouldCancel) {
+    claimPayload.status = "cancelled";
+  }
+
+  const { data: claimedRows, error: claimError } = await supabase
+    .from("orders")
+    .update(claimPayload)
+    .eq("id", orderId)
+    .eq("payment_status", "paid")
+    .select("id");
+
+  if (claimError) {
+    console.error("Failed to claim refund lock:", orderId, claimError.message);
+    throw new Error("Failed to update order for refund.");
+  }
+
+  if (!Array.isArray(claimedRows) || claimedRows.length === 0) {
+    const again = await getAdminOrderById(orderId);
+    if (again?.payment_status === "refunded") {
+      return {
+        order: again,
+        alreadyRefunded: true,
+        previousPaymentStatus,
+        previousStatus,
+        statusChanged: false,
+        inventoryReleased: false,
+        razorpayRefundId: null,
+      };
+    }
+    throw new Error("Only paid orders can be refunded.");
+  }
+
+  let razorpayRefundId: string;
+  try {
+    const refund = await createRazorpayRefund({
+      paymentId,
+      // Full refund of the captured payment (avoids paise rounding drift vs order.total).
+      receipt: orderId.replace(/-/g, "").slice(0, 40),
+      notes: {
+        order_id: orderId,
+        ...(reason ? { reason } : {}),
+        actor_email: user.email ?? "admin",
+      },
+    });
+    razorpayRefundId = refund.id;
+  } catch (error) {
+    // Revert claim so the order can be retried.
+    const revertPayload: {
+      payment_status: PaymentStatus;
+      status?: OrderStatus;
+    } = {
+      payment_status: "paid",
+    };
+    if (shouldCancel) {
+      revertPayload.status = previousStatus;
+    }
+    await supabase
+      .from("orders")
+      .update(revertPayload)
+      .eq("id", orderId)
+      .eq("payment_status", "refunded");
+
+    const message =
+      error instanceof Error ? error.message : "Razorpay refund failed.";
+    console.error("Razorpay refund failed for order:", orderId, message);
+    throw new Error(
+      message.toLowerCase().includes("razorpay")
+        ? message
+        : `Razorpay refund failed: ${message}`
+    );
+  }
+
+  let inventoryReleased = false;
+  if (existing.inventory_reserved) {
+    inventoryReleased = await releaseOrderInventory(orderId);
+    if (!inventoryReleased) {
+      console.error(
+        "Refund recorded but inventory release failed for order:",
+        orderId
+      );
+    }
+  }
+
+  await writeAuditLog(supabase, {
+    entityType: "order",
+    entityId: orderId,
+    action: "payment_refunded",
+    actorAuthUserId: user.id,
+    previousValues: {
+      payment_status: previousPaymentStatus,
+      status: previousStatus,
+      inventory_reserved: existing.inventory_reserved,
+    },
+    newValues: {
+      payment_status: "refunded",
+      status: nextStatus,
+      inventory_reserved: inventoryReleased
+        ? false
+        : existing.inventory_reserved,
+    },
+    metadata: {
+      actor_email: user.email ?? null,
+      razorpay_refund_id: razorpayRefundId,
+      razorpay_payment_id: paymentId,
+      reason: reason ?? null,
+      inventory_released: inventoryReleased,
+    },
+  });
+
+  const updated = await getAdminOrderById(orderId);
+  if (!updated) {
+    throw new Error("Order not found after refund.");
+  }
+
+  return {
+    order: updated,
+    alreadyRefunded: false,
+    previousPaymentStatus,
+    previousStatus,
+    statusChanged: shouldCancel,
+    inventoryReleased,
+    razorpayRefundId,
+  };
 }
 
 export async function updateAdminOrderInternalNotes(

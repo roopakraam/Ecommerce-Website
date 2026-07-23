@@ -18,7 +18,7 @@ export default function OpenGraphImage() {
           display: "flex",
           flexDirection: "column",
           justifyContent: "space-between",
-          background: "#0a0a0a",
+          background: "#0B0A08",
           padding: "64px",
           fontFamily: "sans-serif",
         }}
@@ -30,7 +30,7 @@ export default function OpenGraphImage() {
             fontWeight: 700,
             letterSpacing: "0.2em",
             textTransform: "uppercase",
-            color: "#a3e635",
+            color: "#E4FF3E",
           }}
         >
           BOOK MY TEES

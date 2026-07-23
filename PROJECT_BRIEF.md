@@ -72,9 +72,9 @@ expensive to change later.
 
 ## 8. Legal / trust pages
 
-- **Return/refund policy — does one exist, or does it need drafting? Need Drafting**
-- **Privacy policy — exists or needs drafting? Need Drafting**
-- **Terms of service — exists or needs drafting? Need Drafting**
+- **Return/refund policy — does one exist, or does it need drafting? Template published — client review pending** (`/refund`)
+- **Privacy policy — exists or needs drafting? Template published — client review pending** (`/privacy`)
+- **Terms of service — exists or needs drafting? Template published — client review pending** (`/terms`)
 
 
 

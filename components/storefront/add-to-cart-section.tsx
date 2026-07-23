@@ -1,10 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { LogIn, ShoppingBag } from "lucide-react";
-import { useStorefrontAuth } from "@/lib/hooks/use-storefront-auth";
+import { ShoppingBag } from "lucide-react";
 import { useCartStore } from "@/lib/store/cart";
 import { formatPrice } from "@/lib/utils/format-price";
 import type { ProductVariant } from "@/types";
@@ -49,8 +46,6 @@ export function AddToCartSection({
   imageUrl,
   variants,
 }: AddToCartSectionProps) {
-  const pathname = usePathname();
-  const { isLoggedIn, isLoading } = useStorefrontAuth();
   const addItem = useCartStore((s) => s.addItem);
 
   const activeVariants = useMemo(
@@ -105,7 +100,6 @@ export function AddToCartSection({
   const isSoldOut = !selectedVariant || stockQuantity === 0;
   const isLowStock = stockQuantity > 0 && stockQuantity <= 5;
   const onSale = compareAtPrice != null && compareAtPrice > unitPrice;
-  const loginHref = `/login?next=${encodeURIComponent(pathname || `/products/${slug}`)}`;
 
   function handleSizeSelect(size: string) {
     setSelectedSize(size);
@@ -134,7 +128,7 @@ export function AddToCartSection({
   }
 
   function handleAddToCart() {
-    if (!isLoggedIn || !selectedVariant || isSoldOut) {
+    if (!selectedVariant || isSoldOut) {
       return;
     }
 
@@ -155,10 +149,10 @@ export function AddToCartSection({
   if (activeVariants.length === 0) {
     return (
       <div className="flex flex-col gap-4">
-        <p className="text-3xl font-bold text-neutral-950">
+        <p className="text-3xl font-black text-bone">
           {formatPrice(basePrice)}
         </p>
-        <p className="text-sm font-semibold text-red-600">
+        <p className="text-sm font-semibold text-red-400">
           This product has no sellable variants.
         </p>
       </div>
@@ -168,16 +162,16 @@ export function AddToCartSection({
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center gap-3">
-        <span className="text-3xl font-bold text-neutral-950">
+        <span className="font-mono text-3xl font-bold text-neon">
           {formatPrice(unitPrice)}
         </span>
         {onSale && compareAtPrice != null && (
-          <span className="text-lg text-neutral-400 line-through">
+          <span className="font-mono text-lg text-dust line-through">
             {formatPrice(compareAtPrice)}
           </span>
         )}
         {onSale && (
-          <span className="rounded-full bg-lime-400 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-neutral-950">
+          <span className="rounded-full bg-neon px-3 py-1 font-mono text-xs font-semibold uppercase tracking-wide text-ink">
             On sale
           </span>
         )}
@@ -185,7 +179,7 @@ export function AddToCartSection({
 
       {sizes.length > 0 && (
         <div className="flex flex-col gap-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+          <p className="font-mono text-xs font-semibold uppercase tracking-wide text-dust">
             Size
           </p>
           <div className="flex flex-wrap gap-2">
@@ -200,8 +194,8 @@ export function AddToCartSection({
                   onClick={() => handleSizeSelect(size)}
                   className={`min-w-12 rounded-lg border px-3 py-2 text-sm font-semibold transition ${
                     selected
-                      ? "border-neutral-950 bg-neutral-950 text-white"
-                      : "border-neutral-300 bg-white text-neutral-950 hover:border-neutral-950"
+                      ? "border-bone bg-bone text-ink"
+                      : "border-bone/20 text-bone hover:border-bone/50"
                   } disabled:cursor-not-allowed disabled:opacity-35`}
                 >
                   {size}
@@ -214,7 +208,7 @@ export function AddToCartSection({
 
       {colors.length > 0 && (
         <div className="flex flex-col gap-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+          <p className="font-mono text-xs font-semibold uppercase tracking-wide text-dust">
             Colour
           </p>
           <div className="flex flex-wrap gap-2">
@@ -229,8 +223,8 @@ export function AddToCartSection({
                   onClick={() => handleColorSelect(color)}
                   className={`rounded-lg border px-3 py-2 text-sm font-semibold transition ${
                     selected
-                      ? "border-neutral-950 bg-neutral-950 text-white"
-                      : "border-neutral-300 bg-white text-neutral-950 hover:border-neutral-950"
+                      ? "border-bone bg-bone text-ink"
+                      : "border-bone/20 text-bone hover:border-bone/50"
                   } disabled:cursor-not-allowed disabled:opacity-35`}
                 >
                   {color}
@@ -243,14 +237,14 @@ export function AddToCartSection({
 
       <div className="flex flex-col gap-2">
         {isSoldOut ? (
-          <p className="text-sm font-semibold text-red-600">
+          <p className="text-sm font-semibold text-red-400">
             {selectedVariant ? "Sold out" : "Select size and colour"}
           </p>
         ) : (
           <>
-            <p className="text-sm font-medium text-emerald-700">In stock</p>
+            <p className="text-sm font-medium text-emerald-400">In stock</p>
             {isLowStock && (
-              <p className="text-sm text-amber-700">
+              <p className="text-sm text-amber-400">
                 Only {stockQuantity} left — order soon
               </p>
             )}
@@ -260,58 +254,38 @@ export function AddToCartSection({
 
       {!isSoldOut && (
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-          {isLoggedIn && (
-            <div className="flex items-center rounded-xl border border-neutral-300">
-              <button
-                type="button"
-                onClick={() => handleQuantityChange(quantity - 1)}
-                disabled={quantity <= 1}
-                className="px-4 py-3 text-lg font-medium text-neutral-600 transition hover:text-neutral-950 disabled:cursor-not-allowed disabled:opacity-40"
-                aria-label="Decrease quantity"
-              >
-                −
-              </button>
-              <span className="min-w-12 text-center text-sm font-semibold text-neutral-950">
-                {quantity}
-              </span>
-              <button
-                type="button"
-                onClick={() => handleQuantityChange(quantity + 1)}
-                disabled={quantity >= stockQuantity}
-                className="px-4 py-3 text-lg font-medium text-neutral-600 transition hover:text-neutral-950 disabled:cursor-not-allowed disabled:opacity-40"
-                aria-label="Increase quantity"
-              >
-                +
-              </button>
-            </div>
-          )}
+          <div className="flex items-center rounded-xl border border-bone/20">
+            <button
+              type="button"
+              onClick={() => handleQuantityChange(quantity - 1)}
+              disabled={quantity <= 1}
+              className="px-4 py-3 text-lg font-medium text-bone/70 transition hover:text-bone disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Decrease quantity"
+            >
+              −
+            </button>
+            <span className="min-w-12 text-center text-sm font-semibold text-bone">
+              {quantity}
+            </span>
+            <button
+              type="button"
+              onClick={() => handleQuantityChange(quantity + 1)}
+              disabled={quantity >= stockQuantity}
+              className="px-4 py-3 text-lg font-medium text-bone/70 transition hover:text-bone disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Increase quantity"
+            >
+              +
+            </button>
+          </div>
 
-          {isLoading ? (
-            <button
-              type="button"
-              disabled
-              className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-neutral-300 px-6 py-3.5 text-sm font-semibold text-white"
-            >
-              Loading...
-            </button>
-          ) : isLoggedIn ? (
-            <button
-              type="button"
-              onClick={handleAddToCart}
-              className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-neutral-950 px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-lime-400 hover:text-neutral-950"
-            >
-              <ShoppingBag className="h-4 w-4" />
-              Add to cart
-            </button>
-          ) : (
-            <Link
-              href={loginHref}
-              className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-neutral-950 px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-lime-400 hover:text-neutral-950"
-            >
-              <LogIn className="h-4 w-4" />
-              Login to add to cart
-            </Link>
-          )}
+          <button
+            type="button"
+            onClick={handleAddToCart}
+            className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-neon px-6 py-3.5 text-sm font-bold uppercase tracking-wide text-ink transition hover:bg-bone"
+          >
+            <ShoppingBag className="h-4 w-4" />
+            Add to cart
+          </button>
         </div>
       )}
     </div>

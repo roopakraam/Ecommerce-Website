@@ -9,16 +9,22 @@ const ensureCustomerSchema = z.object({
   phone: z.string().trim().max(20).nullable().optional(),
 });
 
+function bearerToken(request: Request): string | null {
+  const header = request.headers.get("authorization");
+  if (!header?.toLowerCase().startsWith("bearer ")) {
+    return null;
+  }
+  const token = header.slice(7).trim();
+  return token.length > 0 ? token : null;
+}
+
 export async function POST(request: Request) {
   try {
+    const accessToken = bearerToken(request);
     const supabase = await createServerClient();
     const {
-      data: { user },
+      data: { user: cookieUser },
     } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: "Please sign in first." }, { status: 401 });
-    }
 
     const body = await request.json();
     const parsed = ensureCustomerSchema.safeParse(body);
@@ -30,14 +36,25 @@ export async function POST(request: Request) {
       );
     }
 
-    if (parsed.data.authUserId !== user.id) {
+    // Prefer cookie session; fall back to Authorization bearer from client sign-in.
+    let authUserId = cookieUser?.id ?? null;
+    if (!authUserId && accessToken) {
+      authUserId = parsed.data.authUserId;
+    }
+
+    if (!authUserId) {
+      return NextResponse.json({ error: "Please sign in first." }, { status: 401 });
+    }
+
+    if (parsed.data.authUserId !== authUserId && cookieUser) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 403 });
     }
 
     const result = await ensureCustomerProfile({
-      authUserId: user.id,
+      authUserId: parsed.data.authUserId,
       fullName: parsed.data.fullName ?? null,
       phone: parsed.data.phone ?? null,
+      accessToken: accessToken ?? undefined,
     });
 
     if ("error" in result) {

@@ -7,71 +7,65 @@ export const checkoutItemSchema = z.object({
   quantity: z.coerce.number().int().min(1).max(20),
 });
 
-const guestFieldsSchema = z.object({
-  email: z.string().trim().email("Enter a valid email"),
-  phone: z
-    .string()
-    .trim()
-    .min(10, "Enter a valid phone number")
-    .max(20, "Enter a valid phone number"),
-});
+export const couponCodeSchema = z
+  .string()
+  .trim()
+  .max(40, "Coupon code is too long")
+  .transform((value) => (value ? value.toUpperCase() : ""))
+  .refine(
+    (value) => value === "" || /^[A-Z0-9_-]+$/.test(value),
+    "Use letters, numbers, hyphens, or underscores only"
+  );
 
-const baseCheckoutSchema = z.object({
-  isGuest: z.boolean(),
+const optionalEmailSchema = z
+  .union([z.string().trim().email("Enter a valid email address"), z.literal("")])
+  .optional()
+  .nullable()
+  .transform((value) => (value ? value : null));
+
+const optionalPhoneSchema = z
+  .union([
+    z
+      .string()
+      .trim()
+      .min(10, "Phone number must be at least 10 characters"),
+    z.literal(""),
+  ])
+  .optional()
+  .nullable()
+  .transform((value) => (value ? value : null));
+
+export const checkoutRequestSchema = z.object({
   fullName: z.string().trim().max(120).optional().nullable(),
-  email: z.string().trim().optional().nullable(),
-  phone: z.string().trim().optional().nullable(),
+  email: optionalEmailSchema,
+  phone: optionalPhoneSchema,
   address: checkoutAddressSchema,
   saveAddress: z.boolean().optional().default(false),
-  items: z.array(checkoutItemSchema).min(1, "Cart is empty"),
-});
-
-export const checkoutRequestSchema = baseCheckoutSchema.superRefine(
-  (data, ctx) => {
-    if (data.isGuest) {
-      const emailResult = guestFieldsSchema.shape.email.safeParse(data.email);
-      if (!emailResult.success) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["email"],
-          message: "Enter a valid email",
-        });
-      }
-
-      const phoneResult = guestFieldsSchema.shape.phone.safeParse(data.phone);
-      if (!phoneResult.success) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["phone"],
-          message: "Enter a valid phone number",
-        });
-      }
-    }
-  }
-);
-
-export const guestCheckoutFormSchema = z.object({
-  fullName: z.string().trim().max(120).optional().nullable(),
-  email: z.string().trim().email("Enter a valid email"),
-  phone: z
-    .string()
-    .trim()
-    .min(10, "Enter a valid phone number")
-    .max(20, "Enter a valid phone number"),
-  address: checkoutAddressSchema,
-  saveAddress: z.boolean().optional().default(false),
+  couponCode: couponCodeSchema.optional().nullable(),
+  items: z
+    .array(checkoutItemSchema)
+    .min(1, "Cart is empty")
+    .max(50, "Too many line items in cart"),
 });
 
 export const customerCheckoutFormSchema = z.object({
   fullName: z.string().trim().max(120).optional().nullable(),
-  email: z.string().trim().optional().nullable(),
-  phone: z.string().trim().optional().nullable(),
+  email: optionalEmailSchema,
+  phone: optionalPhoneSchema,
   address: checkoutAddressSchema,
   saveAddress: z.boolean().optional().default(false),
+  couponCode: couponCodeSchema.optional().nullable(),
+});
+
+export const validateCouponRequestSchema = z.object({
+  code: couponCodeSchema,
+  subtotal: z.coerce.number().min(0),
 });
 
 export type CheckoutRequestInput = z.infer<typeof checkoutRequestSchema>;
-export type GuestCheckoutFormInput = z.infer<typeof guestCheckoutFormSchema>;
 export type CustomerCheckoutFormInput = z.infer<
   typeof customerCheckoutFormSchema
+>;
+export type ValidateCouponRequestInput = z.infer<
+  typeof validateCouponRequestSchema
 >;

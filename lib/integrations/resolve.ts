@@ -78,24 +78,26 @@ export async function resolveRazorpayCredentials(): Promise<ResolvedRazorpayCred
   const row = await loadCredentialRow("razorpay");
   const secrets = readDbSecrets(row);
 
+  const envWebhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET?.trim() ?? "";
+
   if (secrets?.key_id && secrets?.key_secret) {
     return {
       keyId: secrets.key_id,
       keySecret: secrets.key_secret,
-      webhookSecret: secrets.webhook_secret ?? "",
+      // Prefer DB webhook secret; fall back to env so partial DB config still works.
+      webhookSecret: (secrets.webhook_secret ?? "").trim() || envWebhookSecret,
       source: "database",
     };
   }
 
   const keyId = process.env.RAZORPAY_KEY_ID?.trim();
   const keySecret = process.env.RAZORPAY_KEY_SECRET?.trim();
-  const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET?.trim() ?? "";
 
   if (keyId && keySecret) {
     return {
       keyId,
       keySecret,
-      webhookSecret,
+      webhookSecret: envWebhookSecret,
       source: "env",
     };
   }

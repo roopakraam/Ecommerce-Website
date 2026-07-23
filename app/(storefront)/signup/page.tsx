@@ -1,4 +1,5 @@
 import { CustomerAuthForm } from "@/components/storefront/customer-auth-form";
+import { PageHero } from "@/components/storefront/page-hero";
 import { buildPageMetadata } from "@/lib/seo/site";
 import { safeNextPath } from "@/lib/utils/safe-next-path";
 
@@ -19,8 +20,16 @@ export default function SignupPage({ searchParams }: SignupPageProps) {
   const nextPath = safeNextPath(searchParams.next, "/products");
 
   return (
-    <main className="mx-auto flex max-w-md flex-col px-4 py-12 sm:px-6 sm:py-16">
-      <CustomerAuthForm mode="signup" nextPath={nextPath} />
+    <main>
+      <PageHero
+        eyebrow="Account"
+        title="Create account"
+        description="Create a BOOK MY TEES account to shop and check out faster."
+        containerClassName="max-w-md"
+      />
+      <div className="mx-auto flex max-w-md flex-col px-4 py-12 sm:px-6 sm:py-16">
+        <CustomerAuthForm mode="signup" nextPath={nextPath} />
+      </div>
     </main>
   );
 }

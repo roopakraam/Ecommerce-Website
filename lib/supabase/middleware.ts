@@ -6,7 +6,12 @@ function isAdminLoginPath(pathname: string): boolean {
 }
 
 function isAdminProtectedPath(pathname: string): boolean {
-  return pathname.startsWith("/admin") && !isAdminLoginPath(pathname);
+  // `/api/admin` shares the same admin_users gate as the admin UI.
+  // Login exception applies only to `/admin/login` (not API).
+  return (
+    pathname.startsWith("/api/admin") ||
+    (pathname.startsWith("/admin") && !isAdminLoginPath(pathname))
+  );
 }
 
 export async function updateSession(request: NextRequest) {
@@ -48,7 +53,7 @@ export async function updateSession(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const isAdminRoute = isAdminProtectedPath(pathname);
   const isCustomerProtectedRoute =
-    pathname.startsWith("/cart") || pathname.startsWith("/checkout");
+    pathname.startsWith("/checkout") || pathname.startsWith("/account");
 
   if (!isAdminRoute && !isCustomerProtectedRoute) {
     return supabaseResponse;
@@ -61,7 +66,10 @@ export async function updateSession(request: NextRequest) {
   if (isCustomerProtectedRoute && !user) {
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
-    loginUrl.searchParams.set("next", pathname);
+    loginUrl.searchParams.set(
+      "next",
+      `${pathname}${request.nextUrl.search}`
+    );
     return NextResponse.redirect(loginUrl);
   }
 

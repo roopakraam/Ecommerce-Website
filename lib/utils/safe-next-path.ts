@@ -5,8 +5,21 @@ export function safeNextPath(
   next: string | undefined,
   fallback: string
 ): string {
-  if (!next || !next.startsWith("/") || next.startsWith("//")) {
+  if (!next || typeof next !== "string") {
     return fallback;
   }
-  return next;
+
+  const trimmed = next.trim();
+
+  // Must be a relative path: leading slash, not protocol-relative //, not backslash tricks.
+  if (
+    !trimmed.startsWith("/") ||
+    trimmed.startsWith("//") ||
+    trimmed.includes("\\") ||
+    trimmed.includes("://")
+  ) {
+    return fallback;
+  }
+
+  return trimmed;
 }

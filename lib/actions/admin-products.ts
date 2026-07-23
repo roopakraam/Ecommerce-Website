@@ -82,16 +82,36 @@ async function removeStoragePaths(urls: string[]) {
   }
 }
 
+function suggestVariantSku(name: string, size: string, color: string): string {
+  const base = slugify(name || "tee").toUpperCase().slice(0, 24);
+  const sizePart = slugify(size || "sz").toUpperCase();
+  const colorPart = slugify(color || "col").toUpperCase().slice(0, 12);
+  return `${base}-${sizePart}-${colorPart}`;
+}
+
 function mapVariants(parsed: ReturnType<typeof adminProductFormSchema.parse>) {
-  return parsed.variants.map((variant) => ({
-    id: variant.id,
-    size: variant.size,
-    color: variant.color,
-    sku: variant.sku,
-    stock_quantity: variant.stock_quantity,
-    price_override: variant.price_override,
-    is_active: variant.is_active,
-  }));
+  const usedSkus = new Set<string>();
+
+  return parsed.variants.map((variant) => {
+    let sku = variant.sku.trim() || suggestVariantSku(parsed.name, variant.size, variant.color);
+    const baseSku = sku;
+    let suffix = 2;
+    while (usedSkus.has(sku.toLowerCase())) {
+      sku = `${baseSku}-${suffix}`;
+      suffix += 1;
+    }
+    usedSkus.add(sku.toLowerCase());
+
+    return {
+      id: variant.id,
+      size: variant.size,
+      color: variant.color,
+      sku,
+      stock_quantity: variant.stock_quantity,
+      price_override: variant.price_override,
+      is_active: variant.is_active,
+    };
+  });
 }
 
 function revalidateProductPaths(productId?: string, slug?: string) {

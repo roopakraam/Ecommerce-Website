@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { RazorpayCheckout } from "@/components/storefront/razorpay-checkout";
+import { PageHero } from "@/components/storefront/page-hero";
 import { requireOrderOwnerOrAdmin } from "@/lib/db/orders";
 import { buildPageMetadata } from "@/lib/seo/site";
 
@@ -25,17 +26,19 @@ export default async function CheckoutPaymentPage({
 
   if (!orderId) {
     return (
-      <main className="mx-auto max-w-4xl px-4 py-16 text-center sm:px-6">
-        <h1 className="text-2xl font-bold text-neutral-950">Missing order</h1>
-        <p className="mt-3 text-sm text-neutral-600">
-          No order was provided for payment. Return to checkout and try again.
-        </p>
-        <Link
-          href="/checkout"
-          className="mt-8 inline-flex rounded-full bg-neutral-950 px-6 py-3 text-sm font-semibold text-white hover:bg-lime-400 hover:text-neutral-950"
-        >
-          Back to checkout
-        </Link>
+      <main>
+        <PageHero eyebrow="Checkout" title="Missing order" />
+        <div className="mx-auto max-w-4xl px-4 py-16 text-center sm:px-6">
+          <p className="text-sm text-dust">
+            No order was provided for payment. Return to checkout and try again.
+          </p>
+          <Link
+            href="/checkout"
+            className="mt-8 inline-flex rounded-full bg-neon px-6 py-3 text-sm font-bold uppercase tracking-wide text-ink hover:bg-bone"
+          >
+            Back to checkout
+          </Link>
+        </div>
       </main>
     );
   }
@@ -52,37 +55,38 @@ export default async function CheckoutPaymentPage({
   const order = access.order!;
 
   return (
-    <main className="mx-auto max-w-4xl px-4 py-10 sm:px-6 sm:py-14">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight text-neutral-950">
-          Complete payment
-        </h1>
-        <p className="mt-2 text-sm text-neutral-600 sm:text-base">
-          {order.inventory_reserved
+    <main>
+      <PageHero
+        eyebrow="Checkout"
+        title="Complete payment"
+        description={
+          order.inventory_reserved
             ? "Pay securely with Razorpay. Stock for this order is held while you complete checkout."
-            : "Pay securely with Razorpay to confirm your BOOK MY TEES order."}
-        </p>
-      </div>
-
-      <RazorpayCheckout
-        orderId={order.id}
-        orderTotal={order.total}
-        initialPaymentStatus={order.payment_status}
+            : "Pay securely with Razorpay to confirm your BOOK MY TEES order."
+        }
       />
 
-      <div className="mt-8 flex flex-wrap gap-3">
-        <Link
-          href="/products"
-          className="rounded-full border border-neutral-300 px-5 py-2.5 text-sm font-semibold text-neutral-950 hover:border-neutral-950"
-        >
-          Continue shopping
-        </Link>
-        <Link
-          href="/cart"
-          className="rounded-full border border-neutral-300 px-5 py-2.5 text-sm font-semibold text-neutral-950 hover:border-neutral-950"
-        >
-          Back to cart
-        </Link>
+      <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 sm:py-14">
+        <RazorpayCheckout
+          orderId={order.id}
+          orderTotal={order.total}
+          initialPaymentStatus={order.payment_status}
+        />
+
+        <div className="mt-8 flex flex-wrap gap-3">
+          <Link
+            href="/products"
+            className="rounded-full border border-bone/20 px-5 py-2.5 text-sm font-semibold text-bone hover:border-neon hover:text-neon"
+          >
+            Continue shopping
+          </Link>
+          <Link
+            href="/cart"
+            className="rounded-full border border-bone/20 px-5 py-2.5 text-sm font-semibold text-bone hover:border-neon hover:text-neon"
+          >
+            Back to cart
+          </Link>
+        </div>
       </div>
     </main>
   );

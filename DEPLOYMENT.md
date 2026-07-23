@@ -1,6 +1,6 @@
 # Deployment guide (Vercel + Supabase)
 
-This project is a **Next.js 14 App Router** app. Vercel detects Next.js automatically — a `vercel.json` is **not required**. Framework settings, builds, and serverless routing are handled by the Vercel Next.js runtime.
+This project is a **Next.js 14 App Router** app. Vercel detects Next.js automatically. A minimal [`vercel.json`](vercel.json) configures the **stale-inventory cron** only — framework settings, builds, and serverless routing stay with the Vercel Next.js runtime.
 
 **No custom domain yet?** Deploy first on the free `*.vercel.app` URL. Use that URL for `NEXT_PUBLIC_SITE_URL`, Supabase Auth redirects, and the Razorpay webhook. Attach a custom domain later and update those three places.
 
@@ -22,10 +22,14 @@ This project is a **Next.js 14 App Router** app. Vercel detects Next.js automati
   - `supabase/migrations/20260722098000_admin_analytics.sql` (optional — analytics uses RPC when available, otherwise direct queries)
   - `supabase/migrations/20260722099000_store_settings.sql` (required for admin store/shipping/notification settings + admin display name)
   - `supabase/migrations/20260722100000_integration_credentials.sql` (required for Admin → Integrations encrypted credential storage)
+  - `supabase/migrations/20260723093000_contact_messages.sql` (required for contact form)
+  - `supabase/migrations/20260723101000_order_coupon_discount.sql` (required for coupon discount columns on orders)
+  - `supabase/migrations/20260723110000_customer_cart_items.sql` (required for authenticated cart sync)
 - [ ] Create at least one Auth user and insert a matching `admin_users` row (see below)
 - [ ] Confirm Razorpay keys (use **test** keys until go-live) — via env **or** Admin → Integrations
 - [ ] Set `NEXT_PUBLIC_SITE_URL` — use `https://YOUR_PROJECT.vercel.app` until a custom domain exists (no trailing slash)
 - [ ] Set `INTEGRATIONS_ENCRYPTION_KEY` if you will save provider secrets in the Integrations UI (`openssl rand -base64 32`)
+- [ ] Set `CRON_SECRET` for the inventory-release cron (`openssl rand -base64 32`)
 
 ---
 
@@ -73,6 +77,7 @@ Add each variable below. Prefer scoping secrets to **Production** only; use Prev
 | `TWILIO_AUTH_TOKEN` | Optional | **No** | Twilio Auth Token |
 | `TWILIO_WHATSAPP_FROM` | Optional† | No | e.g. `whatsapp:+14155238886` (sandbox) or your approved WhatsApp sender |
 | `INTEGRATIONS_ENCRYPTION_KEY` | Recommended‡ | **No** | 32-byte key, base64 (`openssl rand -base64 32`). Encrypts secrets saved in Admin → Integrations. Env provider vars remain a fallback when DB credentials are absent. |
+| `CRON_SECRET` | Yes (prod) | **No** | Shared secret for Vercel Cron. Vercel sends `Authorization: Bearer ${CRON_SECRET}` to `/api/cron/release-stale-inventory` every 15 minutes. Generate with `openssl rand -base64 32`. |
 
 \* `RAZORPAY_KEY_ID` is not a `NEXT_PUBLIC_` var; the client receives it from `/api/payments/razorpay/create-order`.  
 † Required together with their API credentials if you want that channel live.  
@@ -180,11 +185,29 @@ Until the webhook is configured, checkout still works via the browser verify rou
 
 When you switch to a custom domain, edit the webhook URL in Razorpay to match.
 
-The webhook and the client verify route share the same idempotent mark-paid path. Inventory is reserved at order create and released on payment failure.
+The webhook and the client verify route share the same idempotent mark-paid path. Inventory is reserved at order create and released on payment failure, admin cancel of unpaid/pending orders, or the stale-reservation cron (orders still `pending` + `inventory_reserved` after 45 minutes).
 
 ---
 
-## 8. Post-deploy smoke test
+## 8. Stale inventory cron
+
+[`vercel.json`](vercel.json) schedules `GET /api/cron/release-stale-inventory` every **15 minutes**. The route:
+
+1. Requires `Authorization: Bearer ${CRON_SECRET}` (401 without it)
+2. Finds orders with `payment_status = pending`, `inventory_reserved = true`, and `created_at` older than **45 minutes**
+3. Marks each failed via `markOrderPaymentFailed` (releases reserved stock)
+
+Set `CRON_SECRET` in Vercel **Production** before relying on this path. On Hobby plans, cron timing can drift; Pro is more precise — either is fine for soft launch stock recovery.
+
+Manual check (local or prod):
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" https://YOUR_PROJECT.vercel.app/api/cron/release-stale-inventory
+```
+
+---
+
+## 9. Post-deploy smoke test
 
 1. `/` and `/products` load
 2. Product detail + size/colour + Add to Cart
@@ -194,10 +217,11 @@ The webhook and the client verify route share the same idempotent mark-paid path
 6. Confirm `/api/health` returns `{ "status": "ok" }`
 7. Confirm order confirmation email/WhatsApp stubs or live providers in server logs
 8. After webhook is set: Razorpay test capture marks order paid without relying only on client verify
+9. Abandon checkout (leave pending): after TTL or cron/fail path, stock returns; admin cancel of unpaid pending order releases reserved inventory
 
 ---
 
-## 9. Common failures
+## 10. Common failures
 
 | Symptom | Likely cause |
 |---|---|
@@ -209,12 +233,72 @@ The webhook and the client verify route share the same idempotent mark-paid path
 | Insufficient stock / no variants | Phase 0 variants migration not applied, or product has no active variants |
 | Wrong sitemap/OG URLs | Missing `NEXT_PUBLIC_SITE_URL` on Production (falls back to `VERCEL_URL` if unset) |
 | Service role errors / empty admin data | `SUPABASE_SERVICE_ROLE_KEY` set to the **anon** key by mistake |
+| Cron returns 401 | Missing/wrong `CRON_SECRET`, or request missing `Authorization: Bearer …` |
 
 ---
 
-## 10. Security reminders
+## 11. Security reminders
 
 - Rotate any keys that were ever committed or shared in chat.
-- Confirm in Vercel that `SUPABASE_SERVICE_ROLE_KEY`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `INTEGRATIONS_ENCRYPTION_KEY`, Resend, and Twilio vars are **not** `NEXT_PUBLIC_`.
+- Confirm in Vercel that `SUPABASE_SERVICE_ROLE_KEY`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `INTEGRATIONS_ENCRYPTION_KEY`, `CRON_SECRET`, Resend, and Twilio vars are **not** `NEXT_PUBLIC_`.
 - Use Razorpay **live** keys only on Production; keep test keys for Preview/local until go-live.
 - Never commit `.env` / `.env.local`.
+
+---
+
+## Soft-launch gate (Jul 25)
+
+**Bar:** soft launch on `*.vercel.app` with Razorpay **test** keys (or live keys only if the client has activated them). All boxes below must be green before inviting real traffic.
+
+### Database & admin
+
+- [ ] All migrations applied through `20260723110000_customer_cart_items.sql` (full ordered list in section 1)
+- [ ] `npm test` passes locally before deploy
+- [ ] Health probes respond: `/api/livez` (200) and `/api/readyz` (200 when Supabase is reachable)
+- [ ] At least one Auth user + matching `admin_users` row; sign-in works at `/admin/login`
+- [ ] Admin can open orders, change status, and print a packing slip
+
+### Production environment (Vercel)
+
+- [ ] `NEXT_PUBLIC_SITE_URL` = production `https://YOUR_PROJECT.vercel.app` (no trailing slash)
+- [ ] Supabase: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+- [ ] Razorpay: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` (and `RAZORPAY_WEBHOOK_SECRET` once webhook exists)
+- [ ] `INTEGRATIONS_ENCRYPTION_KEY` set if using Admin → Integrations to store secrets (`openssl rand -base64 32`)
+- [ ] `CRON_SECRET` set; cron route returns 200 with `Authorization: Bearer …` (section 8)
+- [ ] Supabase Auth Site URL / Redirect URLs point at the production origin (section 5)
+
+### Payments & inventory
+
+- [ ] Razorpay webhook: `https://YOUR_PROJECT.vercel.app/api/payments/razorpay/webhook` with `payment.captured` (section 7)
+- [ ] **Smoke — pay success:** product → cart → checkout → Razorpay test pay → order confirmation; order shows paid (client verify and/or webhook)
+- [ ] **Smoke — abandon:** leave checkout pending → stock returns after fail route **or** 45‑minute TTL + cron
+- [ ] **Smoke — admin cancel:** cancel an unpaid/pending reserved order → reserved stock releases immediately
+- [ ] Inventory cancel path + stale cron verified once in staging or Production (not only locally)
+
+### Catalog, legal, notifications
+
+- [ ] ~15 products loaded with size/colour variants + stock (client photos when available)
+- [ ] Legal pages live: `/privacy`, `/terms`, `/refund` + footer links
+- [ ] Email / WhatsApp: **stub logger is OK for soft launch** if Resend/Twilio are not configured — confirm stubs appear in server logs on order confirmation; tell the client real email/WhatsApp need provider accounts (see Client blockers)
+- [ ] Client explicitly accepts soft launch on `*.vercel.app` until a custom domain is purchased
+
+### Code readiness already shipped (verify once after deploy)
+
+- Inventory release on admin cancel of unpaid/pending reserved orders
+- `releaseStaleReservedOrders` + `/api/cron/release-stale-inventory` + `vercel.json` every 15 minutes
+- Middleware protects `/api/admin` (same `admin_users` gate as `/admin`)
+
+---
+
+## Client blockers
+
+These are **not** code tasks. Soft launch can proceed on `*.vercel.app` without them; flag to the client before Jul 25.
+
+| Blocker | Impact if missing |
+|---|---|
+| **Custom domain** (purchase + DNS) | Stay on `*.vercel.app`; update `NEXT_PUBLIC_SITE_URL`, Supabase Auth URLs, and Razorpay webhook when ready |
+| **Product photos / descriptions** | Catalog can use placeholders; replace before marketing push |
+| **Razorpay live keys** | Soft launch can use **test** mode; switch to live keys + live webhook secret before real charges |
+| **Resend / Twilio** | Order confirmation email/WhatsApp stay as **server stubs** until accounts + verified sender / WhatsApp number are provided |
+
+Lawyer-reviewed legal copy is post-launch; published templates are live for soft launch and marked for client review in `PROJECT_BRIEF.md`.

@@ -52,8 +52,29 @@
     @apply border-border;
   }
 
+  html,
   body {
-    @apply bg-background text-foreground;
+    max-width: 100vw;
+    overflow-x: hidden;
+    background-color: #0b0a08;
+  }
+
+  html {
+    scrollbar-gutter: stable;
+  }
+
+  /* Radix's scroll-lock (react-remove-scroll) injects `margin-right` on
+     body[data-scroll-locked] to compensate for a vanishing scrollbar. With
+     `scrollbar-gutter: stable` that space is already reserved, so the extra
+     margin just shoves the page left every time a modal/drawer opens. The
+     selector needs to out-specificity their injected (!important) rule. */
+  html body[data-scroll-locked] {
+    margin-right: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  body {
+    @apply text-foreground;
     font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
   }
 }
@@ -61,5 +82,14 @@
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
   }
 }

@@ -31,6 +31,25 @@ function describeEntry(entry: AdminOrderAuditEntry): string {
     return "Internal notes updated";
   }
 
+  if (entry.action === "payment_refunded") {
+    const refundId =
+      typeof entry.metadata?.razorpay_refund_id === "string"
+        ? entry.metadata.razorpay_refund_id
+        : null;
+    const toStatus =
+      typeof entry.new_values?.status === "string"
+        ? entry.new_values.status
+        : null;
+    const parts = ["Payment refunded via Razorpay"];
+    if (refundId) {
+      parts.push(`(${refundId})`);
+    }
+    if (toStatus) {
+      parts.push(`· status ${toStatus}`);
+    }
+    return parts.join(" ");
+  }
+
   return entry.action.replace(/_/g, " ");
 }
 
@@ -40,7 +59,7 @@ export function OrderAuditTimeline({ entries }: OrderAuditTimelineProps) {
       <div className="border-b border-border px-5 py-4">
         <h2 className="text-sm font-semibold text-foreground">Audit history</h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          Status and notes changes recorded in audit_logs.
+          Status, notes, and refund changes recorded in audit_logs.
         </p>
       </div>
 

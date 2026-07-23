@@ -9,18 +9,29 @@ const priceSchema = z
   );
 
 export const adminProductVariantSchema = z.object({
-  id: z.string().uuid().optional(),
+  // Hidden inputs register as "" for new variants — treat blank as unset.
+  id: z.preprocess(
+    (value) => (value === "" || value == null ? undefined : value),
+    z.string().uuid().optional()
+  ),
   size: z.string().trim().min(1, "Size is required").max(40),
   color: z.string().trim().min(1, "Colour is required").max(40),
-  sku: z.string().trim().min(1, "SKU is required").max(80),
-  stock_quantity: z
-    .number({ error: "Stock must be a number" })
-    .int("Stock must be a whole number")
-    .min(0, "Stock cannot be negative"),
-  price_override: z
-    .number({ error: "Override price must be a number" })
-    .min(0, "Override price cannot be negative")
-    .nullable(),
+  // Blank is allowed in the form — server/action fills an auto SKU before save.
+  sku: z.string().trim().max(80),
+  stock_quantity: z.preprocess(
+    (value) => (typeof value === "number" && Number.isNaN(value) ? 0 : value),
+    z
+      .number({ error: "Stock must be a number" })
+      .int("Stock must be a whole number")
+      .min(0, "Stock cannot be negative")
+  ),
+  price_override: z.preprocess(
+    (value) => (typeof value === "number" && Number.isNaN(value) ? null : value),
+    z
+      .number({ error: "Override price must be a number" })
+      .min(0, "Override price cannot be negative")
+      .nullable()
+  ),
   is_active: z.boolean(),
 });
 
@@ -28,7 +39,10 @@ export const adminProductFormSchema = z
   .object({
     name: z.string().trim().min(1, "Title is required").max(200),
     description: z.union([z.string().trim().max(5000), z.literal("")]),
-    price: priceSchema,
+    price: z.preprocess(
+      (value) => (typeof value === "number" && Number.isNaN(value) ? undefined : value),
+      priceSchema
+    ),
     category_id: z.union([
       z.string().uuid("Select a valid category"),
       z.literal(""),
@@ -44,14 +58,17 @@ export const adminProductFormSchema = z
 
     data.variants.forEach((variant, index) => {
       const skuKey = variant.sku.toLowerCase();
-      if (seenSku.has(skuKey)) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["variants", index, "sku"],
-          message: "SKU must be unique",
-        });
+      // Only enforce uniqueness for non-empty SKUs; blanks are auto-generated later.
+      if (skuKey) {
+        if (seenSku.has(skuKey)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["variants", index, "sku"],
+            message: "SKU must be unique",
+          });
+        }
+        seenSku.add(skuKey);
       }
-      seenSku.add(skuKey);
 
       const comboKey = `${variant.size.toLowerCase()}::${variant.color.toLowerCase()}`;
       if (seenCombo.has(comboKey)) {
@@ -80,8 +97,10 @@ export const adminProductFormSchema = z
     });
   });
 
-export type AdminProductFormInput = z.infer<typeof adminProductFormSchema>;
-export type AdminProductVariantInput = z.infer<typeof adminProductVariantSchema>;
+export type AdminProductFormInput = z.output<typeof adminProductFormSchema>;
+export type AdminProductVariantInput = z.output<
+  typeof adminProductVariantSchema
+>;
 
 export const adminProductImageSchema = z.object({
   url: z.string().url(),

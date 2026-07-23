@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabase/client";
@@ -12,9 +12,26 @@ import {
 interface CustomerAuthFormProps {
   mode: "login" | "signup";
   nextPath: string;
+  /** Visual wrapper: "page" (bordered card, used by /login and /signup) or "modal" (no card chrome, used inside AuthModal). */
+  variant?: "page" | "modal";
+  /** When provided (modal usage), called instead of navigating to nextPath on success. */
+  onSuccess?: () => void;
+  /** When provided (modal usage), switches the mode in place instead of linking to /login or /signup. */
+  onSwitchMode?: (mode: "login" | "signup") => void;
 }
 
-export function CustomerAuthForm({ mode, nextPath }: CustomerAuthFormProps) {
+const inputClass =
+  "w-full rounded-xl border border-bone/15 bg-surface px-3.5 py-2.5 text-sm text-bone placeholder:text-dust outline-none ring-neon transition focus:border-neon focus:ring-2";
+const labelClass =
+  "mb-1.5 block font-mono text-xs font-semibold uppercase tracking-wide text-dust";
+
+export function CustomerAuthForm({
+  mode,
+  nextPath,
+  variant = "page",
+  onSuccess,
+  onSwitchMode,
+}: CustomerAuthFormProps) {
   const router = useRouter();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -25,15 +42,34 @@ export function CustomerAuthForm({ mode, nextPath }: CustomerAuthFormProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
 
+  // Switching modes in the shared modal reuses this same component instance —
+  // clear stale messages from the previous mode's attempt.
+  useEffect(() => {
+    setErrorMessage(null);
+    setInfoMessage(null);
+  }, [mode]);
+
   async function ensureCustomerRow(params: {
     authUserId: string;
     fullName?: string | null;
     phone?: string | null;
+    accessToken?: string | null;
   }) {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (params.accessToken) {
+      headers.Authorization = `Bearer ${params.accessToken}`;
+    }
+
     const response = await fetch("/api/customers/ensure", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params),
+      headers,
+      body: JSON.stringify({
+        authUserId: params.authUserId,
+        fullName: params.fullName,
+        phone: params.phone,
+      }),
     });
 
     if (!response.ok) {
@@ -75,6 +111,7 @@ export function CustomerAuthForm({ mode, nextPath }: CustomerAuthFormProps) {
           fullName:
             (data.user.user_metadata?.full_name as string | undefined) ?? null,
           phone: (data.user.user_metadata?.phone as string | undefined) ?? null,
+          accessToken: data.session?.access_token ?? null,
         });
       } catch (ensureError) {
         setErrorMessage(
@@ -86,8 +123,13 @@ export function CustomerAuthForm({ mode, nextPath }: CustomerAuthFormProps) {
         return;
       }
 
-      router.replace(nextPath);
-      router.refresh();
+      if (onSuccess) {
+        router.refresh();
+        onSuccess();
+      } else {
+        router.replace(nextPath);
+        router.refresh();
+      }
       return;
     }
 
@@ -137,6 +179,7 @@ export function CustomerAuthForm({ mode, nextPath }: CustomerAuthFormProps) {
         authUserId: data.user.id,
         fullName: parsed.data.fullName,
         phone: phoneValue,
+        accessToken: data.session?.access_token ?? null,
       });
     } catch (ensureError) {
       setErrorMessage(
@@ -148,31 +191,40 @@ export function CustomerAuthForm({ mode, nextPath }: CustomerAuthFormProps) {
       return;
     }
 
-    router.replace(nextPath);
-    router.refresh();
+    if (onSuccess) {
+      router.refresh();
+      onSuccess();
+    } else {
+      router.replace(nextPath);
+      router.refresh();
+    }
   }
 
   const isLogin = mode === "login";
+  const isModal = variant === "modal";
 
   return (
-    <div className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm sm:p-8">
-      <h1 className="text-2xl font-bold tracking-tight text-neutral-950">
-        {isLogin ? "Sign in" : "Create account"}
-      </h1>
-      <p className="mt-2 text-sm text-neutral-600">
+    <div className={isModal ? "" : "rounded-2xl border border-bone/10 bg-surface p-6 sm:p-8"}>
+      {isModal ? (
+        <h2 className="text-2xl font-black uppercase tracking-tight text-bone">
+          {isLogin ? "Sign in" : "Create account"}
+        </h2>
+      ) : (
+        <h1 className="text-2xl font-black uppercase tracking-tight text-bone">
+          {isLogin ? "Sign in" : "Create account"}
+        </h1>
+      )}
+      <p className="mt-2 text-sm text-dust">
         {isLogin
-          ? "Sign in to add items to your cart and checkout."
-          : "Create an account to shop and track your orders."}
+          ? "Sign in to checkout and save your cart across devices."
+          : "Create an account to checkout and track your orders."}
       </p>
 
       <form onSubmit={handleSubmit} className="mt-6 space-y-4">
         {!isLogin && (
           <>
             <div>
-              <label
-                htmlFor="fullName"
-                className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-600"
-              >
+              <label htmlFor="fullName" className={labelClass}>
                 Full name
               </label>
               <input
@@ -181,15 +233,12 @@ export function CustomerAuthForm({ mode, nextPath }: CustomerAuthFormProps) {
                 required
                 value={fullName}
                 onChange={(event) => setFullName(event.target.value)}
-                className="w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm text-neutral-950 outline-none ring-lime-400 transition focus:border-lime-400 focus:ring-2"
+                className={inputClass}
                 placeholder="Your name"
               />
             </div>
             <div>
-              <label
-                htmlFor="phone"
-                className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-600"
-              >
+              <label htmlFor="phone" className={labelClass}>
                 Phone
               </label>
               <input
@@ -197,7 +246,7 @@ export function CustomerAuthForm({ mode, nextPath }: CustomerAuthFormProps) {
                 type="tel"
                 value={phone}
                 onChange={(event) => setPhone(event.target.value)}
-                className="w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm text-neutral-950 outline-none ring-lime-400 transition focus:border-lime-400 focus:ring-2"
+                className={inputClass}
                 placeholder="10-digit mobile number"
               />
             </div>
@@ -205,10 +254,7 @@ export function CustomerAuthForm({ mode, nextPath }: CustomerAuthFormProps) {
         )}
 
         <div>
-          <label
-            htmlFor="email"
-            className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-600"
-          >
+          <label htmlFor="email" className={labelClass}>
             Email
           </label>
           <input
@@ -217,16 +263,13 @@ export function CustomerAuthForm({ mode, nextPath }: CustomerAuthFormProps) {
             required
             value={email}
             onChange={(event) => setEmail(event.target.value)}
-            className="w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm text-neutral-950 outline-none ring-lime-400 transition focus:border-lime-400 focus:ring-2"
+            className={inputClass}
             placeholder="you@example.com"
           />
         </div>
 
         <div>
-          <label
-            htmlFor="password"
-            className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-600"
-          >
+          <label htmlFor="password" className={labelClass}>
             Password
           </label>
           <input
@@ -235,17 +278,14 @@ export function CustomerAuthForm({ mode, nextPath }: CustomerAuthFormProps) {
             required
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            className="w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm text-neutral-950 outline-none ring-lime-400 transition focus:border-lime-400 focus:ring-2"
+            className={inputClass}
             placeholder="At least 6 characters"
           />
         </div>
 
         {!isLogin && (
           <div>
-            <label
-              htmlFor="confirmPassword"
-              className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-600"
-            >
+            <label htmlFor="confirmPassword" className={labelClass}>
               Confirm password
             </label>
             <input
@@ -254,20 +294,20 @@ export function CustomerAuthForm({ mode, nextPath }: CustomerAuthFormProps) {
               required
               value={confirmPassword}
               onChange={(event) => setConfirmPassword(event.target.value)}
-              className="w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm text-neutral-950 outline-none ring-lime-400 transition focus:border-lime-400 focus:ring-2"
+              className={inputClass}
               placeholder="Re-enter password"
             />
           </div>
         )}
 
         {errorMessage && (
-          <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
             {errorMessage}
           </p>
         )}
 
         {infoMessage && (
-          <p className="rounded-xl border border-lime-200 bg-lime-50 px-3 py-2 text-sm text-neutral-800">
+          <p className="rounded-xl border border-neon/30 bg-neon/10 px-3 py-2 text-sm text-bone">
             {infoMessage}
           </p>
         )}
@@ -275,7 +315,7 @@ export function CustomerAuthForm({ mode, nextPath }: CustomerAuthFormProps) {
         <button
           type="submit"
           disabled={isSubmitting}
-          className="w-full rounded-full bg-neutral-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-lime-400 hover:text-neutral-950 disabled:cursor-not-allowed disabled:opacity-60"
+          className="w-full rounded-full bg-neon px-4 py-2.5 text-sm font-bold uppercase tracking-wide text-ink transition hover:bg-bone disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isSubmitting
             ? isLogin
@@ -287,26 +327,46 @@ export function CustomerAuthForm({ mode, nextPath }: CustomerAuthFormProps) {
         </button>
       </form>
 
-      <p className="mt-5 text-center text-sm text-neutral-600">
+      <p className="mt-5 text-center text-sm text-dust">
         {isLogin ? (
           <>
             New here?{" "}
-            <Link
-              href={`/signup?next=${encodeURIComponent(nextPath)}`}
-              className="font-semibold text-neutral-950 underline-offset-4 hover:underline"
-            >
-              Create an account
-            </Link>
+            {onSwitchMode ? (
+              <button
+                type="button"
+                onClick={() => onSwitchMode("signup")}
+                className="font-semibold text-bone underline-offset-4 hover:text-neon hover:underline"
+              >
+                Create an account
+              </button>
+            ) : (
+              <Link
+                href={`/signup?next=${encodeURIComponent(nextPath)}`}
+                className="font-semibold text-bone underline-offset-4 hover:text-neon hover:underline"
+              >
+                Create an account
+              </Link>
+            )}
           </>
         ) : (
           <>
             Already have an account?{" "}
-            <Link
-              href={`/login?next=${encodeURIComponent(nextPath)}`}
-              className="font-semibold text-neutral-950 underline-offset-4 hover:underline"
-            >
-              Sign in
-            </Link>
+            {onSwitchMode ? (
+              <button
+                type="button"
+                onClick={() => onSwitchMode("login")}
+                className="font-semibold text-bone underline-offset-4 hover:text-neon hover:underline"
+              >
+                Sign in
+              </button>
+            ) : (
+              <Link
+                href={`/login?next=${encodeURIComponent(nextPath)}`}
+                className="font-semibold text-bone underline-offset-4 hover:text-neon hover:underline"
+              >
+                Sign in
+              </Link>
+            )}
           </>
         )}
       </p>

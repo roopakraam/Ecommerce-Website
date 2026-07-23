@@ -28,11 +28,12 @@ export function csvDownloadResponse(
   filename: string,
   csv: string
 ): Response {
+  const safeName = filename.replace(/[^\w.\-]+/g, "_").slice(0, 120) || "export.csv";
   return new Response(csv, {
     status: 200,
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Content-Disposition": `attachment; filename="${safeName}"`,
       "Cache-Control": "no-store",
     },
   });

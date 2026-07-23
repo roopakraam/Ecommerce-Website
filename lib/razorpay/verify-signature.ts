@@ -23,7 +23,10 @@ export function verifyRazorpayPaymentSignature(params: {
     .update(body)
     .digest("hex");
 
-  return timingSafeEqualHex(expected, params.razorpaySignature);
+  return timingSafeEqualHex(
+    expected,
+    params.razorpaySignature.trim().toLowerCase()
+  );
 }
 
 /** Razorpay webhook signature: HMAC-SHA256 of raw body with webhook secret. */
@@ -37,5 +40,5 @@ export function verifyRazorpayWebhookSignature(params: {
     .update(params.rawBody)
     .digest("hex");
 
-  return timingSafeEqualHex(expected, params.signature);
+  return timingSafeEqualHex(expected, params.signature.trim().toLowerCase());
 }

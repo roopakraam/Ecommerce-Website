@@ -2,16 +2,18 @@
 
 import { revalidatePath } from "next/cache";
 import {
+  refundAdminOrder,
   updateAdminOrderInternalNotes,
   updateAdminOrderStatus,
 } from "@/lib/db/admin-orders";
 import { ADMIN_ORDERS_PATH } from "@/lib/admin/orders";
 import { notifyOrderStatusChange } from "@/lib/notifications/order-status";
 import {
+  refundAdminOrderSchema,
   updateOrderNotesSchema,
   updateOrderStatusSchema,
 } from "@/lib/validations/admin-order";
-import type { OrderStatus } from "@/types";
+import type { OrderStatus, PaymentStatus } from "@/types";
 
 export type UpdateOrderStatusResult =
   | { success: true; status: OrderStatus }
@@ -19,6 +21,17 @@ export type UpdateOrderStatusResult =
 
 export type UpdateOrderNotesResult =
   | { success: true }
+  | { success: false; error: string };
+
+export type RefundOrderResult =
+  | {
+      success: true;
+      paymentStatus: PaymentStatus;
+      status: OrderStatus;
+      alreadyRefunded: boolean;
+      inventoryReleased: boolean;
+      razorpayRefundId: string | null;
+    }
   | { success: false; error: string };
 
 function revalidateOrderPaths(orderId: string) {
@@ -97,6 +110,56 @@ export async function updateOrderNotesAction(input: {
         error instanceof Error
           ? error.message
           : "Failed to update internal notes.",
+    };
+  }
+}
+
+export async function refundOrderAction(input: {
+  orderId: string;
+  reason?: string;
+}): Promise<RefundOrderResult> {
+  const parsed = refundAdminOrderSchema.safeParse({
+    orderId: input.orderId,
+    reason: input.reason?.trim() ? input.reason.trim() : undefined,
+  });
+
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Invalid refund request.",
+    };
+  }
+
+  try {
+    const result = await refundAdminOrder(parsed.data.orderId, {
+      reason: parsed.data.reason,
+    });
+
+    if (result.statusChanged) {
+      await notifyOrderStatusChange({
+        orderId: result.order.id,
+        previousStatus: result.previousStatus,
+        nextStatus: result.order.status,
+        customerName: result.order.customers?.full_name ?? null,
+        customerPhone: result.order.customers?.phone ?? null,
+      });
+    }
+
+    revalidateOrderPaths(result.order.id);
+
+    return {
+      success: true,
+      paymentStatus: result.order.payment_status,
+      status: result.order.status,
+      alreadyRefunded: result.alreadyRefunded,
+      inventoryReleased: result.inventoryReleased,
+      razorpayRefundId: result.razorpayRefundId,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error:
+        error instanceof Error ? error.message : "Failed to refund order.",
     };
   }
 }

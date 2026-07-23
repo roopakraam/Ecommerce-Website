@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Plus, Trash2 } from "lucide-react";
-import { useFieldArray, useForm } from "react-hook-form";
+import { useFieldArray, useForm, type Resolver } from "react-hook-form";
 import {
   createProductAction,
   updateProductAction,
@@ -60,8 +60,11 @@ export function ProductForm({
   const [formError, setFormError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  // Zod 4 + preprocess makes resolver input `unknown`; cast to output form type.
   const form = useForm<AdminProductFormInput>({
-    resolver: zodResolver(adminProductFormSchema),
+    resolver: zodResolver(
+      adminProductFormSchema
+    ) as Resolver<AdminProductFormInput>,
     defaultValues: {
       name: defaultValues?.name ?? "",
       description: defaultValues?.description ?? "",
@@ -86,6 +89,47 @@ export function ProductForm({
     [images]
   );
 
+  function firstFieldErrorMessage(
+    errors: typeof form.formState.errors
+  ): string | null {
+    if (errors.name?.message) return String(errors.name.message);
+    if (errors.description?.message) return String(errors.description.message);
+    if (errors.price?.message) return String(errors.price.message);
+    if (errors.category_id?.message) return String(errors.category_id.message);
+    if (errors.variants?.message) return String(errors.variants.message);
+    if (errors.variants?.root?.message) return String(errors.variants.root.message);
+
+    const variantErrors = errors.variants;
+    if (Array.isArray(variantErrors)) {
+      for (let i = 0; i < variantErrors.length; i += 1) {
+        const variant = variantErrors[i];
+        if (!variant) continue;
+        const message =
+          variant.size?.message ||
+          variant.color?.message ||
+          variant.sku?.message ||
+          variant.stock_quantity?.message ||
+          variant.price_override?.message ||
+          variant.id?.message ||
+          variant.is_active?.message;
+        if (message) {
+          return `Variant ${i + 1}: ${String(message)}`;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  function onInvalid(errors: typeof form.formState.errors) {
+    const detail = firstFieldErrorMessage(errors);
+    setFormError(
+      detail
+        ? `Please fix: ${detail}`
+        : "Please fix the highlighted fields before saving."
+    );
+  }
+
   function onSubmit(values: AdminProductFormInput) {
     setFormError(null);
 
@@ -99,21 +143,43 @@ export function ProductForm({
       return;
     }
 
+    if (!Number.isFinite(values.price)) {
+      setFormError("Enter a valid base price.");
+      return;
+    }
+
     const payloadImages = images.map((image, index) => ({
       url: image.url,
       position: index,
     }));
 
+    const usedSkus = new Set<string>();
     const normalized: AdminProductFormInput = {
       ...values,
-      variants: values.variants.map((variant) => ({
-        ...variant,
-        sku: variant.sku.trim() || suggestSku(values.name, variant.size, variant.color),
-        price_override:
-          variant.price_override == null || Number.isNaN(variant.price_override)
-            ? null
-            : variant.price_override,
-      })),
+      variants: values.variants.map((variant) => {
+        let sku =
+          variant.sku.trim() ||
+          suggestSku(values.name, variant.size, variant.color);
+        const baseSku = sku;
+        let suffix = 2;
+        while (usedSkus.has(sku.toLowerCase())) {
+          sku = `${baseSku}-${suffix}`;
+          suffix += 1;
+        }
+        usedSkus.add(sku.toLowerCase());
+
+        return {
+          ...variant,
+          sku,
+          stock_quantity: Number.isFinite(variant.stock_quantity)
+            ? variant.stock_quantity
+            : 0,
+          price_override:
+            variant.price_override == null || Number.isNaN(variant.price_override)
+              ? null
+              : variant.price_override,
+        };
+      }),
     };
 
     startTransition(async () => {
@@ -138,7 +204,7 @@ export function ProductForm({
 
   return (
     <form
-      onSubmit={form.handleSubmit(onSubmit)}
+      onSubmit={form.handleSubmit(onSubmit, onInvalid)}
       className="space-y-8 rounded-2xl border border-neutral-800 bg-neutral-900 p-5 sm:p-6"
     >
       <div className="grid gap-5 sm:grid-cols-2">
@@ -284,7 +350,13 @@ export function ProductForm({
               key={field.fieldKey}
               className="grid gap-3 rounded-xl border border-neutral-800 bg-neutral-950/60 p-3 sm:grid-cols-12"
             >
-              <input type="hidden" {...form.register(`variants.${index}.id`)} />
+              <input
+                type="hidden"
+                {...form.register(`variants.${index}.id`, {
+                  setValueAs: (value) =>
+                    value === "" || value == null ? undefined : value,
+                })}
+              />
 
               <div className="sm:col-span-2">
                 <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-neutral-500">

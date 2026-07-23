@@ -13,10 +13,14 @@ export interface OrderTotalsResult {
   shippingFee: number;
   taxAmount: number;
   total: number;
+  discountAmount: number;
   zone: ShippingZoneLike | null;
 }
 
 export function roundMoney(amount: number): number {
+  if (!Number.isFinite(amount)) {
+    return 0;
+  }
   return Math.round((amount + Number.EPSILON) * 100) / 100;
 }
 
@@ -96,13 +100,25 @@ export function computeOrderTotals(input: {
   taxRatePercent: number;
   zones: ShippingZoneLike[];
   state?: string | null;
+  /** Merchandise discount (coupon); capped at subtotal. */
+  discountAmount?: number;
 }): OrderTotalsResult {
+  const discountAmount = roundMoney(
+    Math.min(
+      Math.max(0, Number(input.discountAmount ?? 0)),
+      Math.max(0, Number(input.subtotal))
+    )
+  );
+  const taxableSubtotal = roundMoney(
+    Math.max(0, Number(input.subtotal) - discountAmount)
+  );
   const zone = matchShippingZone(input.zones, input.state);
-  const shippingFee = computeShippingFee(zone, input.subtotal);
-  const taxAmount = computeTaxAmount(input.subtotal, input.taxRatePercent);
-  const total = roundMoney(input.subtotal + shippingFee + taxAmount);
+  // Free-shipping threshold uses post-discount merchandise (payable goods).
+  const shippingFee = computeShippingFee(zone, taxableSubtotal);
+  const taxAmount = computeTaxAmount(taxableSubtotal, input.taxRatePercent);
+  const total = roundMoney(taxableSubtotal + shippingFee + taxAmount);
 
-  return { shippingFee, taxAmount, total, zone };
+  return { shippingFee, taxAmount, total, discountAmount, zone };
 }
 
 /** Reconstruct tax from stored order amounts when no tax column exists. */
@@ -110,8 +126,15 @@ export function taxFromOrderAmounts(input: {
   subtotal: number;
   shippingFee: number;
   total: number;
+  discountAmount?: number;
 }): number {
+  const discount = roundMoney(Math.max(0, Number(input.discountAmount ?? 0)));
   return roundMoney(
-    Math.max(0, Number(input.total) - Number(input.subtotal) - Number(input.shippingFee))
+    Math.max(
+      0,
+      Number(input.total) -
+        (Number(input.subtotal) - discount) -
+        Number(input.shippingFee)
+    )
   );
 }

@@ -6,6 +6,18 @@ import { createBrowserClient } from "@/lib/supabase/client";
 export interface StorefrontAuthUser {
   id: string;
   email: string | null;
+  fullName: string | null;
+}
+
+function toAuthUser(
+  authUser: { id: string; email?: string | null; user_metadata?: Record<string, unknown> } | null | undefined
+): StorefrontAuthUser | null {
+  if (!authUser) return null;
+  return {
+    id: authUser.id,
+    email: authUser.email ?? null,
+    fullName: (authUser.user_metadata?.full_name as string | undefined) ?? null,
+  };
 }
 
 export function useStorefrontAuth() {
@@ -26,11 +38,7 @@ export function useStorefrontAuth() {
         return;
       }
 
-      setUser(
-        authUser
-          ? { id: authUser.id, email: authUser.email ?? null }
-          : null
-      );
+      setUser(toAuthUser(authUser));
       setIsLoading(false);
     }
 
@@ -39,11 +47,7 @@ export function useStorefrontAuth() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(
-        session?.user
-          ? { id: session.user.id, email: session.user.email ?? null }
-          : null
-      );
+      setUser(toAuthUser(session?.user));
       setIsLoading(false);
     });
 

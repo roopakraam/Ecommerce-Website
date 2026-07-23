@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { computeOrderTotals } from "@/lib/checkout/order-totals";
 import { ensureCustomerProfile } from "@/lib/db/customers";
+import { resolveCouponForCheckout } from "@/lib/db/coupons";
 import { reserveOrderInventory } from "@/lib/db/orders";
 import { getPublicStoreCommerceSettings } from "@/lib/db/store-settings";
+import { logger } from "@/lib/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createServerClient } from "@/lib/supabase/server";
 import { checkoutRequestSchema } from "@/lib/validations/checkout";
@@ -35,6 +37,30 @@ function effectiveUnitPrice(
     : Number(product.price);
 }
 
+/** Collapse duplicate variant lines so stock checks and inserts stay consistent. */
+function aggregateCheckoutItems(
+  items: { productId: string; variantId: string; quantity: number }[]
+) {
+  const byVariant = new Map<
+    string,
+    { productId: string; variantId: string; quantity: number }
+  >();
+
+  for (const item of items) {
+    const existing = byVariant.get(item.variantId);
+    if (existing) {
+      if (existing.productId !== item.productId) {
+        throw new Error("Conflicting product ids for the same variant.");
+      }
+      existing.quantity += item.quantity;
+    } else {
+      byVariant.set(item.variantId, { ...item });
+    }
+  }
+
+  return Array.from(byVariant.values());
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -48,13 +74,6 @@ export async function POST(request: Request) {
     }
 
     const payload = parsed.data;
-
-    if (payload.isGuest) {
-      return NextResponse.json(
-        { error: "Please sign in to continue checkout." },
-        { status: 401 }
-      );
-    }
 
     const supabase = await createServerClient();
     const {
@@ -78,10 +97,45 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: customerResult.error }, { status: 500 });
     }
 
-    const admin = createAdminClient();
-    const variantIds = Array.from(
-      new Set(payload.items.map((item) => item.variantId))
-    );
+    let admin;
+    try {
+      admin = createAdminClient();
+    } catch (adminError) {
+      logger.error("Admin client failed during order create", {
+        error:
+          adminError instanceof Error ? adminError.message : String(adminError),
+      });
+      return NextResponse.json(
+        {
+          error:
+            adminError instanceof Error
+              ? adminError.message
+              : "Server payment configuration error. Check SUPABASE_SERVICE_ROLE_KEY.",
+        },
+        { status: 500 }
+      );
+    }
+
+    let aggregatedItems;
+    try {
+      aggregatedItems = aggregateCheckoutItems(payload.items);
+    } catch {
+      return NextResponse.json(
+        { error: "One or more products are unavailable." },
+        { status: 400 }
+      );
+    }
+
+    for (const item of aggregatedItems) {
+      if (item.quantity > 20) {
+        return NextResponse.json(
+          { error: "Quantity for a single item cannot exceed 20." },
+          { status: 400 }
+        );
+      }
+    }
+
+    const variantIds = aggregatedItems.map((item) => item.variantId);
 
     const { data: variants, error: variantsError } = await admin
       .from("product_variants")
@@ -105,7 +159,7 @@ export async function POST(request: Request) {
       [];
     let subtotal = 0;
 
-    for (const item of payload.items) {
+    for (const item of aggregatedItems) {
       const variant = variantMap.get(item.variantId);
       const product = unwrapProduct(variant?.products ?? null);
 
@@ -146,12 +200,26 @@ export async function POST(request: Request) {
       });
     }
 
+    const couponResult = await resolveCouponForCheckout({
+      code: payload.couponCode,
+      customerId: customerResult.customer.id,
+      subtotal,
+    });
+
+    if (!couponResult.ok) {
+      return NextResponse.json({ error: couponResult.error }, { status: 400 });
+    }
+
+    const appliedCoupon = couponResult.applied;
+    const discountAmount = appliedCoupon?.discountAmount ?? 0;
+
     const commerce = await getPublicStoreCommerceSettings();
     const { shippingFee, total } = computeOrderTotals({
       subtotal,
       taxRatePercent: commerce.taxRate,
       zones: commerce.zones,
       state: payload.address.state,
+      discountAmount,
     });
 
     const { data: order, error: orderError } = await admin
@@ -163,6 +231,9 @@ export async function POST(request: Request) {
         payment_provider: "razorpay",
         subtotal,
         shipping_fee: shippingFee,
+        discount_amount: discountAmount,
+        coupon_id: appliedCoupon?.coupon.id ?? null,
+        coupon_code: appliedCoupon?.coupon.code ?? null,
         total,
         shipping_address: payload.address,
         inventory_reserved: false,
@@ -185,7 +256,16 @@ export async function POST(request: Request) {
       .insert(finalOrderItems);
 
     if (orderItemsError) {
-      await admin.from("orders").delete().eq("id", orderId);
+      const { error: deleteError } = await admin
+        .from("orders")
+        .delete()
+        .eq("id", orderId);
+      if (deleteError) {
+        logger.error("Failed to clean up order after item insert failure", {
+          orderId,
+          error: deleteError.message,
+        });
+      }
       return NextResponse.json(
         { error: "Failed to create order items." },
         { status: 500 }
@@ -198,8 +278,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: reserved.error }, { status: 400 });
     }
 
+    // Coupon usage is incremented only after payment capture (confirmOrderPaymentPaid).
+
     if (payload.saveAddress) {
-      await admin.from("addresses").insert({
+      const { error: addressError } = await admin.from("addresses").insert({
         customer_id: customerResult.customer.id,
         line1: payload.address.line1,
         line2: payload.address.line2,
@@ -208,6 +290,12 @@ export async function POST(request: Request) {
         pincode: payload.address.pincode,
         is_default: false,
       });
+      if (addressError) {
+        logger.warn("Failed to save checkout address", {
+          orderId,
+          error: addressError.message,
+        });
+      }
     }
 
     return NextResponse.json({
@@ -215,7 +303,9 @@ export async function POST(request: Request) {
       redirectTo: buildPaymentRedirect(orderId),
     });
   } catch (error) {
-    console.error("Order create API failed:", error);
+    logger.error("Order create API failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json(
       { error: "Unexpected server error while creating order." },
       { status: 500 }

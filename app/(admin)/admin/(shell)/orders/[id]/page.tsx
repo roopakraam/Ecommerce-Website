@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { OrderAuditTimeline } from "@/components/admin/order-audit-timeline";
 import { OrderInternalNotes } from "@/components/admin/order-internal-notes";
+import { OrderRefundControl } from "@/components/admin/order-refund-control";
 import { OrderStatusControl } from "@/components/admin/order-status-control";
 import { Button } from "@/components/ui/button";
 import { taxFromOrderAmounts } from "@/lib/checkout/order-totals";
@@ -56,10 +57,12 @@ export default async function AdminOrderDetailPage({
   }
 
   const auditEntries = await getAdminOrderAuditLogs(order.id);
+  const discountAmount = Number(order.discount_amount ?? 0);
   const taxAmount = taxFromOrderAmounts({
     subtotal: Number(order.subtotal),
     shippingFee: Number(order.shipping_fee),
     total: Number(order.total),
+    discountAmount,
   });
 
   return (
@@ -109,6 +112,14 @@ export default async function AdminOrderDetailPage({
           key={order.status}
           orderId={order.id}
           currentStatus={order.status}
+        />
+
+        <OrderRefundControl
+          key={`${order.payment_status}-${order.status}`}
+          orderId={order.id}
+          paymentStatus={order.payment_status}
+          orderStatus={order.status}
+          orderTotalLabel={formatPrice(Number(order.total))}
         />
 
         <section className="grid gap-4 sm:grid-cols-2">
@@ -189,6 +200,21 @@ export default async function AdminOrderDetailPage({
                   {formatPrice(Number(order.subtotal))}
                 </dd>
               </div>
+              {discountAmount > 0 ? (
+                <div className="flex justify-between">
+                  <dt className="text-muted-foreground">
+                    Discount
+                    {order.coupon_code ? (
+                      <span className="mt-0.5 block text-xs font-normal">
+                        {order.coupon_code}
+                      </span>
+                    ) : null}
+                  </dt>
+                  <dd className="text-foreground">
+                    −{formatPrice(discountAmount)}
+                  </dd>
+                </div>
+              ) : null}
               <div className="flex justify-between">
                 <dt className="text-muted-foreground">Shipping</dt>
                 <dd className="text-foreground">

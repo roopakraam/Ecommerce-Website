@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { useCartStore } from "@/lib/store/cart";
+import { clearServerCart } from "@/lib/hooks/use-cart-sync";
 import { formatPrice } from "@/lib/utils/format-price";
 import type { PaymentStatus } from "@/types";
 
@@ -111,7 +112,7 @@ export function RazorpayCheckout({
         contact: customerPhone ?? undefined,
       },
       theme: {
-        color: "#a3e635",
+        color: "#E4FF3E",
       },
       handler: async (response) => {
         const verifyResponse = await fetch("/api/payments/razorpay/verify", {
@@ -132,13 +133,16 @@ export function RazorpayCheckout({
         if (!verifyResponse.ok || !("redirectTo" in verifyResult)) {
           setError(
             ("error" in verifyResult && verifyResult.error) ||
-              "Payment verification failed."
+              "Payment verification failed. If money was deducted, it will be confirmed shortly or contact support."
           );
-          await markPaymentFailed();
+          // Do not call /fail after a charged payment — inventory must stay
+          // reserved until webhook/reconcile confirms or the order is abandoned.
+          setPaymentState("failed");
           return;
         }
 
         clearCart();
+        void clearServerCart();
         setPaymentState("paid");
         router.push(verifyResult.redirectTo);
       },
@@ -179,11 +183,11 @@ export function RazorpayCheckout({
 
   if (initialPaymentStatus === "paid" || paymentState === "paid") {
     return (
-      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 text-center">
-        <p className="text-lg font-semibold text-emerald-800">
+      <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-6 text-center">
+        <p className="text-lg font-semibold text-emerald-300">
           Payment already completed
         </p>
-        <p className="mt-2 text-sm text-emerald-700">
+        <p className="mt-2 text-sm text-emerald-400/80">
           This order has been paid. Check your confirmation page for details.
         </p>
       </div>
@@ -192,11 +196,11 @@ export function RazorpayCheckout({
 
   if (initialPaymentStatus === "refunded") {
     return (
-      <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-6 text-center">
-        <p className="text-lg font-semibold text-neutral-950">
+      <div className="rounded-2xl border border-bone/15 bg-surface p-6 text-center">
+        <p className="text-lg font-semibold text-bone">
           Order refunded
         </p>
-        <p className="mt-2 text-sm text-neutral-600">
+        <p className="mt-2 text-sm text-dust">
           This order has been refunded and cannot be paid again.
         </p>
       </div>
@@ -204,26 +208,26 @@ export function RazorpayCheckout({
   }
 
   return (
-    <div className="rounded-2xl border border-neutral-200 bg-white p-6">
+    <div className="rounded-2xl border border-bone/10 bg-surface p-6">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm text-neutral-600">Amount due</p>
-          <p className="text-2xl font-bold text-neutral-950">
+          <p className="text-sm text-dust">Amount due</p>
+          <p className="font-mono text-2xl font-bold text-neon">
             {formatPrice(orderTotal)}
           </p>
         </div>
-        <p className="font-mono text-xs text-neutral-500">Order {orderId}</p>
+        <p className="font-mono text-xs text-dust">Order {orderId}</p>
       </div>
 
       {paymentState === "loading" && (
-        <div className="mt-6 flex items-center gap-2 text-sm text-neutral-600">
+        <div className="mt-6 flex items-center gap-2 text-sm text-dust">
           <Loader2 className="h-4 w-4 animate-spin" />
           Preparing secure checkout...
         </div>
       )}
 
       {error && (
-        <div className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="mt-6 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
           {error}
         </div>
       )}
@@ -232,14 +236,14 @@ export function RazorpayCheckout({
         <button
           type="button"
           onClick={() => void openCheckout()}
-          className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-neutral-950 px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-lime-400 hover:text-neutral-950 sm:w-auto"
+          className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-neon px-6 py-3.5 text-sm font-bold uppercase tracking-wide text-ink transition hover:bg-bone sm:w-auto"
         >
           {paymentState === "failed" ? "Retry payment" : "Pay now"}
         </button>
       )}
 
       {paymentState === "processing" && (
-        <p className="mt-6 text-sm text-neutral-600">
+        <p className="mt-6 text-sm text-dust">
           Complete payment in the Razorpay window...
         </p>
       )}

@@ -32,6 +32,7 @@ interface CheckoutSubmitValues {
   email?: string | null;
   phone?: string | null;
   saveAddress?: boolean;
+  couponCode?: string | null;
   address: {
     line1: string;
     line2?: string | null;
@@ -40,6 +41,16 @@ interface CheckoutSubmitValues {
     pincode: string;
   };
 }
+
+interface AppliedCouponPreview {
+  code: string;
+  discountAmount: number;
+  description: string;
+}
+
+const inputClass =
+  "mt-1.5 w-full rounded-xl border border-bone/15 bg-surface px-3.5 py-2.5 text-sm text-bone placeholder:text-dust outline-none ring-neon focus:border-neon focus:ring-2";
+const labelClass = "text-sm font-medium text-bone/75";
 
 export function CheckoutForm({
   savedAddresses,
@@ -53,6 +64,10 @@ export function CheckoutForm({
   const items = useCartStore((s) => s.items);
   const subtotal = useCartStore((s) => s.subtotal());
   const [error, setError] = useState<string | null>(null);
+  const [couponError, setCouponError] = useState<string | null>(null);
+  const [couponBusy, setCouponBusy] = useState(false);
+  const [appliedCoupon, setAppliedCoupon] =
+    useState<AppliedCouponPreview | null>(null);
   const cartItems = hasHydrated ? items : [];
 
   const resolver = useMemo(() => zodResolver(customerCheckoutFormSchema), []);
@@ -67,6 +82,7 @@ export function CheckoutForm({
       email: defaultEmail ?? "",
       phone: defaultPhone ?? "",
       saveAddress: true,
+      couponCode: "",
       address: {
         line1: defaultAddress?.line1 ?? "",
         line2: defaultAddress?.line2 ?? "",
@@ -78,6 +94,7 @@ export function CheckoutForm({
   });
 
   const watchedState = form.watch("address.state");
+  const watchedCouponCode = form.watch("couponCode");
   const totals = useMemo(
     () =>
       computeOrderTotals({
@@ -85,11 +102,18 @@ export function CheckoutForm({
         taxRatePercent: commerce.taxRate,
         zones: commerce.zones,
         state: watchedState,
+        discountAmount: appliedCoupon?.discountAmount ?? 0,
       }),
-    [subtotal, commerce.taxRate, commerce.zones, watchedState]
+    [
+      subtotal,
+      commerce.taxRate,
+      commerce.zones,
+      watchedState,
+      appliedCoupon?.discountAmount,
+    ]
   );
 
-  const { shippingFee, taxAmount, total, zone } = totals;
+  const { shippingFee, taxAmount, total, discountAmount, zone } = totals;
   const freeShippingApplied =
     zone != null &&
     zone.free_above != null &&
@@ -109,6 +133,60 @@ export function CheckoutForm({
     form.setValue("address.pincode", selected.pincode);
   }
 
+  async function applyCoupon() {
+    const code = (watchedCouponCode ?? "").trim();
+    if (!code) {
+      setCouponError("Enter a coupon code.");
+      setAppliedCoupon(null);
+      return;
+    }
+
+    setCouponBusy(true);
+    setCouponError(null);
+
+    try {
+      const response = await fetch("/api/coupons/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, subtotal }),
+      });
+
+      const result = (await response.json()) as
+        | { error: string }
+        | {
+            code: string;
+            discountAmount: number;
+            description: string;
+          };
+
+      if (!response.ok || !("discountAmount" in result)) {
+        setAppliedCoupon(null);
+        setCouponError(
+          ("error" in result && result.error) || "Invalid coupon code."
+        );
+        return;
+      }
+
+      setAppliedCoupon({
+        code: result.code,
+        discountAmount: result.discountAmount,
+        description: result.description,
+      });
+      form.setValue("couponCode", result.code);
+    } catch {
+      setAppliedCoupon(null);
+      setCouponError("Failed to validate coupon.");
+    } finally {
+      setCouponBusy(false);
+    }
+  }
+
+  function clearCoupon() {
+    setAppliedCoupon(null);
+    setCouponError(null);
+    form.setValue("couponCode", "");
+  }
+
   async function onSubmit(rawValues: unknown) {
     const values = rawValues as CheckoutSubmitValues;
     if (cartItems.length === 0) {
@@ -118,8 +196,11 @@ export function CheckoutForm({
 
     setError(null);
 
+    const couponCode =
+      appliedCoupon?.code ??
+      (values.couponCode?.trim() ? values.couponCode.trim().toUpperCase() : null);
+
     const payload = {
-      isGuest: false,
       fullName: values.fullName ?? null,
       email: defaultEmail ?? values.email ?? null,
       phone: values.phone ?? null,
@@ -131,6 +212,7 @@ export function CheckoutForm({
         pincode: values.address.pincode,
       },
       saveAddress: values.saveAddress ?? false,
+      couponCode,
       items: cartItems.map((item) => ({
         productId: item.productId,
         variantId: item.variantId,
@@ -158,7 +240,7 @@ export function CheckoutForm({
 
   if (!hasHydrated || cartItems.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-neutral-300 bg-neutral-50 p-8 text-center text-sm text-neutral-600">
+      <div className="rounded-2xl border border-dashed border-bone/20 bg-surface p-8 text-center text-sm text-dust">
         Your cart is empty. Add a few tees before checkout.
       </div>
     );
@@ -170,24 +252,22 @@ export function CheckoutForm({
       className="grid gap-8 lg:grid-cols-[1fr_360px]"
     >
       <div className="space-y-8">
-        <section className="rounded-2xl border border-neutral-200 bg-white p-5 sm:p-6">
-          <h2 className="text-lg font-semibold text-neutral-950">
+        <section className="rounded-2xl border border-bone/10 bg-surface p-5 sm:p-6">
+          <h2 className="text-lg font-semibold text-bone">
             Shipping address
           </h2>
           {defaultEmail && (
-            <p className="mt-2 text-sm text-neutral-600">
+            <p className="mt-2 text-sm text-dust">
               Signed in as{" "}
-              <span className="font-medium text-neutral-950">{defaultEmail}</span>
+              <span className="font-medium text-bone">{defaultEmail}</span>
             </p>
           )}
 
           {savedAddresses.length > 0 && (
             <div className="mt-4">
-              <label className="text-sm font-medium text-neutral-700">
-                Use saved address
-              </label>
+              <label className={labelClass}>Use saved address</label>
               <select
-                className="mt-1.5 w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm outline-none ring-lime-400 focus:border-lime-400 focus:ring-2"
+                className={inputClass}
                 defaultValue=""
                 onChange={(event) => applySavedAddress(event.target.value)}
               >
@@ -204,105 +284,88 @@ export function CheckoutForm({
 
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
-              <label className="text-sm font-medium text-neutral-700">
-                Full name
-              </label>
-              <input
-                {...form.register("fullName")}
-                className="mt-1.5 w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm outline-none ring-lime-400 focus:border-lime-400 focus:ring-2"
-              />
-              <p className="mt-1 text-xs text-red-600">
+              <label className={labelClass}>Full name</label>
+              <input {...form.register("fullName")} className={inputClass} />
+              <p className="mt-1 text-xs text-red-400">
                 {form.formState.errors.fullName?.message}
               </p>
             </div>
             <div className="sm:col-span-2">
-              <label className="text-sm font-medium text-neutral-700">
-                Phone
-              </label>
+              <label className={labelClass}>Phone</label>
               <input
                 type="tel"
                 {...form.register("phone")}
-                className="mt-1.5 w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm outline-none ring-lime-400 focus:border-lime-400 focus:ring-2"
+                className={inputClass}
               />
-              <p className="mt-1 text-xs text-red-600">
+              <p className="mt-1 text-xs text-red-400">
                 {form.formState.errors.phone?.message}
               </p>
             </div>
             <div className="sm:col-span-2">
-              <label className="text-sm font-medium text-neutral-700">
-                Address line 1
-              </label>
+              <label className={labelClass}>Address line 1</label>
               <input
                 {...form.register("address.line1")}
-                className="mt-1.5 w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm outline-none ring-lime-400 focus:border-lime-400 focus:ring-2"
+                className={inputClass}
               />
-              <p className="mt-1 text-xs text-red-600">
+              <p className="mt-1 text-xs text-red-400">
                 {form.formState.errors.address?.line1?.message}
               </p>
             </div>
             <div className="sm:col-span-2">
-              <label className="text-sm font-medium text-neutral-700">
-                Address line 2 (optional)
-              </label>
+              <label className={labelClass}>Address line 2 (optional)</label>
               <input
                 {...form.register("address.line2")}
-                className="mt-1.5 w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm outline-none ring-lime-400 focus:border-lime-400 focus:ring-2"
+                className={inputClass}
               />
             </div>
             <div>
-              <label className="text-sm font-medium text-neutral-700">
-                City
-              </label>
+              <label className={labelClass}>City</label>
               <input
                 {...form.register("address.city")}
-                className="mt-1.5 w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm outline-none ring-lime-400 focus:border-lime-400 focus:ring-2"
+                className={inputClass}
               />
-              <p className="mt-1 text-xs text-red-600">
+              <p className="mt-1 text-xs text-red-400">
                 {form.formState.errors.address?.city?.message}
               </p>
             </div>
             <div>
-              <label className="text-sm font-medium text-neutral-700">
-                State
-              </label>
+              <label className={labelClass}>State</label>
               <input
                 {...form.register("address.state")}
-                className="mt-1.5 w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm outline-none ring-lime-400 focus:border-lime-400 focus:ring-2"
+                className={inputClass}
               />
-              <p className="mt-1 text-xs text-red-600">
+              <p className="mt-1 text-xs text-red-400">
                 {form.formState.errors.address?.state?.message}
               </p>
             </div>
             <div>
-              <label className="text-sm font-medium text-neutral-700">
-                Pincode
-              </label>
+              <label className={labelClass}>Pincode</label>
               <input
                 {...form.register("address.pincode")}
-                className="mt-1.5 w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm outline-none ring-lime-400 focus:border-lime-400 focus:ring-2"
+                className={inputClass}
               />
-              <p className="mt-1 text-xs text-red-600">
+              <p className="mt-1 text-xs text-red-400">
                 {form.formState.errors.address?.pincode?.message}
               </p>
             </div>
           </div>
 
-          <label className="mt-4 flex items-center gap-2 text-sm text-neutral-700">
+          <label className="mt-4 flex items-center gap-2 text-sm text-bone/75">
             <input
               type="checkbox"
               {...form.register("saveAddress")}
-              className="rounded"
+              className="rounded accent-neon"
             />
             Save this address for next time
           </label>
         </section>
       </div>
 
-      <aside className="h-fit rounded-2xl border border-neutral-200 bg-neutral-50 p-6">
-        <h2 className="mb-4 text-lg font-semibold text-neutral-950">
+      <aside className="h-fit rounded-2xl border border-bone/10 bg-surface p-6">
+        <h2 className="mb-4 text-lg font-semibold text-bone">
           Order summary
         </h2>
-        <ul className="space-y-2 text-sm text-neutral-700">
+        <ul className="space-y-2 text-sm text-bone/75">
           {cartItems.map((item) => (
             <li
               key={item.variantId}
@@ -311,52 +374,124 @@ export function CheckoutForm({
               <span className="line-clamp-2">
                 {item.name} ({item.size}/{item.color}) × {item.quantity}
               </span>
-              <span className="font-medium text-neutral-950">
+              <span className="font-medium text-bone">
                 {formatPrice(item.unitPrice * item.quantity)}
               </span>
             </li>
           ))}
         </ul>
-        <hr className="my-4 border-neutral-200" />
+        <hr className="my-4 border-bone/10" />
+
+        <div className="mb-4">
+          <label className={labelClass} htmlFor="couponCode">
+            Promo code
+          </label>
+          <div className="mt-1.5 flex gap-2">
+            <input
+              id="couponCode"
+              {...form.register("couponCode", {
+                onChange: () => {
+                  if (appliedCoupon) {
+                    setAppliedCoupon(null);
+                  }
+                  if (couponError) {
+                    setCouponError(null);
+                  }
+                },
+              })}
+              className={inputClass + " mt-0"}
+              placeholder="CODE"
+              autoComplete="off"
+              disabled={couponBusy || form.formState.isSubmitting}
+            />
+            {appliedCoupon ? (
+              <button
+                type="button"
+                onClick={clearCoupon}
+                className="shrink-0 rounded-xl border border-bone/20 px-3 py-2.5 text-sm font-medium text-bone/80 transition hover:border-bone/40 hover:text-bone"
+              >
+                Remove
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={applyCoupon}
+                disabled={couponBusy || form.formState.isSubmitting}
+                className="shrink-0 rounded-xl border border-neon/40 bg-neon/10 px-3 py-2.5 text-sm font-semibold text-neon transition hover:bg-neon/20 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {couponBusy ? "…" : "Apply"}
+              </button>
+            )}
+          </div>
+          {appliedCoupon ? (
+            <p className="mt-1.5 text-xs text-emerald-300">
+              {appliedCoupon.code} applied · {appliedCoupon.description}
+            </p>
+          ) : null}
+          {couponError ? (
+            <p className="mt-1.5 text-xs text-red-400">{couponError}</p>
+          ) : null}
+          {form.formState.errors.couponCode?.message ? (
+            <p className="mt-1.5 text-xs text-red-400">
+              {form.formState.errors.couponCode.message}
+            </p>
+          ) : null}
+        </div>
+
         <div className="space-y-2 text-sm">
           <div className="flex items-center justify-between">
-            <span className="text-neutral-600">Subtotal</span>
-            <span className="font-medium text-neutral-950">
+            <span className="text-bone/75">Subtotal</span>
+            <span className="font-medium text-bone">
               {formatPrice(subtotal)}
             </span>
           </div>
+          {discountAmount > 0 ? (
+            <div className="flex items-center justify-between">
+              <span className="text-bone/75">
+                Discount
+                {appliedCoupon ? (
+                  <span className="mt-0.5 block text-xs font-normal text-dust">
+                    {appliedCoupon.code}
+                  </span>
+                ) : null}
+              </span>
+              <span className="font-medium text-emerald-300">
+                −{formatPrice(discountAmount)}
+              </span>
+            </div>
+          ) : null}
           <div className="flex items-center justify-between">
-            <span className="text-neutral-600">
+            <span className="text-bone/75">
               Shipping
               {zone ? (
-                <span className="mt-0.5 block text-xs font-normal text-neutral-500">
+                <span className="mt-0.5 block text-xs font-normal text-dust">
                   {zone.name}
                   {freeShippingApplied ? " · free shipping" : ""}
                 </span>
               ) : null}
             </span>
-            <span className="text-neutral-950">{formatPrice(shippingFee)}</span>
+            <span className="text-bone">{formatPrice(shippingFee)}</span>
           </div>
           {commerce.taxRate > 0 ? (
             <div className="flex items-center justify-between">
-              <span className="text-neutral-600">
+              <span className="text-bone/75">
                 Tax ({commerce.taxRate}%)
               </span>
-              <span className="text-neutral-950">{formatPrice(taxAmount)}</span>
+              <span className="text-bone">{formatPrice(taxAmount)}</span>
             </div>
           ) : null}
         </div>
-        <div className="mt-4 flex items-center justify-between text-base font-semibold">
+        <div className="mt-4 flex items-center justify-between text-base font-semibold text-bone">
           <span>Total</span>
-          <span>{formatPrice(total)}</span>
+          <span className="font-mono text-neon">{formatPrice(total)}</span>
         </div>
 
-        {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+        {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
 
         <button
           type="submit"
           disabled={form.formState.isSubmitting}
-          className="mt-5 inline-flex w-full items-center justify-center rounded-full bg-neutral-950 px-6 py-3 text-sm font-semibold text-white transition hover:bg-lime-400 hover:text-neutral-950 disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-5 inline-flex w-full items-center justify-center rounded-full bg-neon px-6 py-3 text-sm font-bold uppercase tracking-wide text-ink transition hover:bg-bone disabled:cursor-not-allowed disabled:opacity-60"
         >
           {form.formState.isSubmitting
             ? "Creating order..."

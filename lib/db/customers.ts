@@ -1,14 +1,63 @@
-import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@supabase/supabase-js";
+import { createServerClient } from "@/lib/supabase/server";
 import type { Customer } from "@/types";
 
-export async function ensureCustomerProfile(params: {
+type EnsureCustomerParams = {
   authUserId: string;
   fullName?: string | null;
   phone?: string | null;
-}): Promise<{ customer: Customer } | { error: string }> {
-  const admin = createAdminClient();
+  /** Optional bearer from client sign-in — avoids cookie race right after login. */
+  accessToken?: string | null;
+};
 
-  const { data: existing, error: existingError } = await admin
+function createUserClientFromAccessToken(accessToken: string) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !anonKey) {
+    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY.");
+  }
+
+  return createClient(url, anonKey, {
+    global: {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}
+
+/**
+ * Ensures a `customers` row for the signed-in user.
+ * Uses the user JWT (cookies or accessToken) so RLS `customers_insert_own` applies.
+ * Does not require the service role key.
+ */
+export async function ensureCustomerProfile(
+  params: EnsureCustomerParams
+): Promise<{ customer: Customer } | { error: string }> {
+  const supabase = params.accessToken
+    ? createUserClientFromAccessToken(params.accessToken)
+    : await createServerClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser(
+    params.accessToken ? params.accessToken : undefined
+  );
+
+  if (!user) {
+    return { error: "Please sign in first." };
+  }
+
+  if (user.id !== params.authUserId) {
+    return { error: "Unauthorized." };
+  }
+
+  const { data: existing, error: existingError } = await supabase
     .from("customers")
     .select("*")
     .eq("auth_user_id", params.authUserId)
@@ -27,7 +76,7 @@ export async function ensureCustomerProfile(params: {
       nextFullName !== existing.full_name ||
       nextPhone !== existing.phone
     ) {
-      const { data: updated, error: updateError } = await admin
+      const { data: updated, error: updateError } = await supabase
         .from("customers")
         .update({
           full_name: nextFullName,
@@ -42,16 +91,16 @@ export async function ensureCustomerProfile(params: {
           "Failed to update customer profile:",
           updateError?.message
         );
-        return { customer: existing };
+        return { customer: existing as Customer };
       }
 
-      return { customer: updated };
+      return { customer: updated as Customer };
     }
 
-    return { customer: existing };
+    return { customer: existing as Customer };
   }
 
-  const { data: created, error: createError } = await admin
+  const { data: created, error: createError } = await supabase
     .from("customers")
     .insert({
       auth_user_id: params.authUserId,
@@ -64,11 +113,16 @@ export async function ensureCustomerProfile(params: {
   if (createError || !created) {
     console.error("Failed to create customer profile:", createError?.message);
     return {
-      error:
-        createError?.message ??
-        "Failed to create customer profile. Please try again.",
+      error: mapCustomerWriteError(createError?.message),
     };
   }
 
-  return { customer: created };
+  return { customer: created as Customer };
+}
+
+function mapCustomerWriteError(message: string | undefined): string {
+  if (message?.toLowerCase().includes("row-level security")) {
+    return "Could not create your customer profile (database permission). Please refresh and try again, or contact support.";
+  }
+  return message ?? "Failed to create customer profile. Please try again.";
 }
